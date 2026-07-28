@@ -147,3 +147,8 @@ target/
 dist/
 .env
 *.log
+
+# Python
+ai-engine/venv/
+ai-engine/__pycache__/
+*.pyc
