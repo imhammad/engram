@@ -1,7 +1,15 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from llama_cpp import Llama
 
 app = FastAPI(title="Engram AI Engine")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # fine for local-only dev; we'll tighten this later
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 MODEL_PATH = "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
 
