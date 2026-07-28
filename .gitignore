@@ -152,3 +152,5 @@ dist/
 ai-engine/venv/
 ai-engine/__pycache__/
 *.pyc
+
+ai-engine/models/
