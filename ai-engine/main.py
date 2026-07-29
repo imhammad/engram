@@ -2,9 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from llama_cpp import Llama
 import os
-from db import init_db, insert_memory, get_all_memories
 from pydantic import BaseModel
-from vector_store import add_to_vector_store
+from vector_store import add_to_vector_store, query_vector_store
+from db import init_db, insert_memory, get_all_memories, get_memories_by_ids
 
 app = FastAPI(title="Engram AI Engine")
 
@@ -56,6 +56,13 @@ def generate(prompt: str):
         stop=["</s>"],
     )
     return {"response": output["choices"][0]["text"].strip()}
+
+@app.get("/search")
+def search_memories(q: str, limit: int = 5):
+    matching_ids = query_vector_store(q, n_results=limit)
+    memories_by_id = get_memories_by_ids(matching_ids)
+    # preserve the relevance order returned by the vector search
+    return [memories_by_id[mid] for mid in matching_ids if mid in memories_by_id]
 
 
 if __name__ == "__main__":
