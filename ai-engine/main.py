@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from llama_cpp import Llama
 import os
+from db import init_db, insert_memory, get_all_memories
+from pydantic import BaseModel
 
 app = FastAPI(title="Engram AI Engine")
 
@@ -11,6 +13,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+init_db()
 
 MODEL_DIR = os.environ.get(
     "ENGRAM_MODEL_DIR",
@@ -22,6 +26,19 @@ print(f"Loading local model from: {MODEL_PATH}")
 llm = Llama(model_path=MODEL_PATH, n_ctx=2048, verbose=False)
 print("Model loaded successfully.")
 
+
+class MemoryCreate(BaseModel):
+    content: str
+
+
+@app.post("/memories")
+def create_memory(memory: MemoryCreate):
+    return insert_memory(memory.content)
+
+
+@app.get("/memories")
+def list_memories():
+    return get_all_memories()
 
 @app.get("/health")
 def health_check():
