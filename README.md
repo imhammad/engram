@@ -10,9 +10,25 @@ laptop — and helps you query your own working memory using local AI.
 - [x] Tailwind CSS integration
 - [x] Verified frontend ↔ Rust IPC bridge
 - [x] Basic app shell (sidebar + main content layout)
-- [ ] Local AI engine (Phase 2)
+- [x] Local AI engine (Phase 2)
 - [ ] Memory graph / RAG pipeline (Phase 3)
 - [ ] Passive ingestion — screen OCR + audio (Phase 4)
+
+## Phase 2 — Local AI Engine (complete)
+
+The AI engine is a Python/FastAPI service running `llama.cpp` with a
+quantized local model (currently TinyLlama, for pipeline validation,
+a stronger model will replace it before release). It's bundled as a
+standalone executable via PyInstaller and launched automatically as
+a Tauri sidecar on app startup, so no separate Python process or
+manual server start is required. Frontend communicates with it over
+local HTTP (`127.0.0.1:8000`), no data ever leaves the device.
+
+**Known limitation (tracked for Phase 5/packaging):** the sidecar
+currently locates its model files via an absolute path into the
+source tree, which works in dev but won't survive a real installer
+on another machine. This will be resolved when we build proper
+resource bundling for distribution.
 
 ## Tech Stack
 
