@@ -4,6 +4,7 @@ from llama_cpp import Llama
 import os
 from db import init_db, insert_memory, get_all_memories
 from pydantic import BaseModel
+from vector_store import add_to_vector_store
 
 app = FastAPI(title="Engram AI Engine")
 
@@ -33,7 +34,9 @@ class MemoryCreate(BaseModel):
 
 @app.post("/memories")
 def create_memory(memory: MemoryCreate):
-    return insert_memory(memory.content)
+    saved = insert_memory(memory.content)
+    add_to_vector_store(saved["id"], saved["content"])
+    return saved
 
 
 @app.get("/memories")
