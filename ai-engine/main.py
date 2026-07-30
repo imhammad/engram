@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from vector_store import add_to_vector_store, query_vector_store
 from db import init_db, insert_memory, get_all_memories, get_memories_by_ids
 from ocr_capture import capture_screen_text
+from audio_capture import record_and_transcribe
 
 app = FastAPI(title="Engram AI Engine")
 
@@ -45,6 +46,15 @@ def capture_screen():
     if not captured_text:
         return {"saved": False, "reason": "No readable text found on screen."}
     saved = insert_memory(captured_text, source="screen_ocr")
+    add_to_vector_store(saved["id"], saved["content"])
+    return {"saved": True, "memory": saved}
+
+@app.post("/capture/audio")
+def capture_audio():
+    transcript = record_and_transcribe()
+    if not transcript:
+        return {"saved": False, "reason": "No speech detected."}
+    saved = insert_memory(transcript, source="audio_transcription")
     add_to_vector_store(saved["id"], saved["content"])
     return {"saved": True, "memory": saved}
 
