@@ -5,6 +5,7 @@ import os
 from pydantic import BaseModel
 from vector_store import add_to_vector_store, query_vector_store
 from db import init_db, insert_memory, get_all_memories, get_memories_by_ids
+from ocr_capture import capture_screen_text
 
 app = FastAPI(title="Engram AI Engine")
 
@@ -37,6 +38,15 @@ def create_memory(memory: MemoryCreate):
     saved = insert_memory(memory.content)
     add_to_vector_store(saved["id"], saved["content"])
     return saved
+
+@app.post("/capture/screen")
+def capture_screen():
+    captured_text = capture_screen_text()
+    if not captured_text:
+        return {"saved": False, "reason": "No readable text found on screen."}
+    saved = insert_memory(captured_text, source="screen_ocr")
+    add_to_vector_store(saved["id"], saved["content"])
+    return {"saved": True, "memory": saved}
 
 
 @app.get("/memories")
