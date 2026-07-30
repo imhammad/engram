@@ -12,7 +12,7 @@ laptop — and helps you query your own working memory using local AI.
 - [x] Basic app shell (sidebar + main content layout)
 - [x] Local AI engine (Phase 2)
 - [x] Memory graph / RAG pipeline (Phase 3)
-- [ ] Passive ingestion — screen OCR + audio (Phase 4)
+- [x] Manual Capture — screen OCR + audio (Phase 4)
 
 ## Phase 2 — Local AI Engine (complete)
 
@@ -40,6 +40,29 @@ both; searching queries ChromaDB for the nearest matches and
 resolves them back to full records via SQLite. The Memories tab in
 the app lets you save notes and search them by meaning rather than
 exact keywords, fully local, no cloud calls.
+
+## Phase 4 — Manual Capture: Screen OCR + Audio (complete)
+
+Users can manually trigger two capture modes, both saved through the
+same memory pipeline as typed notes:
+
+- **Screen capture**: `mss` grabs the current screen, `pytesseract`
+  (Tesseract OCR) extracts visible text.
+- **Audio capture**: `sounddevice` records an 8-second clip,
+  `faster-whisper` (base.en, int8) transcribes it locally.
+
+Both run entirely on-device — no cloud APIs, no continuous
+background monitoring. This is a deliberate scope decision: always-on
+passive capture (the original "second brain" vision) introduces
+significant OS permission, resource-usage, and privacy-UX complexity
+that deserves its own dedicated phase rather than being rushed in
+alongside the core capture mechanics.
+
+**Known limitations (tracked for future refinement):**
+- Screen OCR captures the full monitor rather than the active window,
+  so results include UI chrome as noise.
+- Audio transcription accuracy varies; a larger Whisper model would
+  improve this at the cost of speed/resource usage.
 
 ## Tech Stack
 
