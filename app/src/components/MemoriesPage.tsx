@@ -17,6 +17,8 @@ export default function MemoriesPage() {
   const [loading, setLoading] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [captureMessage, setCaptureMessage] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [audioMessage, setAudioMessage] = useState<string | null>(null);
 
   async function loadMemories() {
     const res = await fetch(`${API_BASE}/memories`);
@@ -61,6 +63,26 @@ export default function MemoriesPage() {
   } finally {
     setCapturing(false);
     setTimeout(() => setCaptureMessage(null), 3000);
+  }
+}
+
+async function captureAudio() {
+  setRecording(true);
+  setAudioMessage("Listening... speak now (8 seconds)");
+  try {
+    const res = await fetch(`${API_BASE}/capture/audio`, { method: "POST" });
+    const data = await res.json();
+    if (data.saved) {
+      setAudioMessage("Transcribed and saved!");
+      await loadMemories();
+    } else {
+      setAudioMessage(data.reason || "No speech detected.");
+    }
+  } catch (err) {
+    setAudioMessage("Error: could not reach AI engine.");
+  } finally {
+    setRecording(false);
+    setTimeout(() => setAudioMessage(null), 3000);
   }
 }
 
@@ -116,6 +138,22 @@ export default function MemoriesPage() {
           </button>
           {captureMessage && (
             <span className="text-sm text-slate-400">{captureMessage}</span>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <h2 className="mb-2 text-lg font-semibold">Capture audio</h2>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={captureAudio}
+            disabled={recording}
+            className="rounded-lg bg-rose-600 px-4 py-2 hover:bg-rose-500 disabled:opacity-50"
+          >
+            {recording ? "🎙️ Recording..." : "🎙️ Record 8s"}
+          </button>
+          {audioMessage && (
+            <span className="text-sm text-slate-400">{audioMessage}</span>
           )}
         </div>
       </div>
