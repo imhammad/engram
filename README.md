@@ -11,7 +11,7 @@ laptop — and helps you query your own working memory using local AI.
 - [x] Verified frontend ↔ Rust IPC bridge
 - [x] Basic app shell (sidebar + main content layout)
 - [x] Local AI engine (Phase 2)
-- [ ] Memory graph / RAG pipeline (Phase 3)
+- [x] Memory graph / RAG pipeline (Phase 3)
 - [ ] Passive ingestion — screen OCR + audio (Phase 4)
 
 ## Phase 2 — Local AI Engine (complete)
@@ -29,6 +29,17 @@ currently locates its model files via an absolute path into the
 source tree, which works in dev but won't survive a real installer
 on another machine. This will be resolved when we build proper
 resource bundling for distribution.
+
+## Phase 3 — Memory Graph / RAG Pipeline (complete)
+
+Memories are stored in two complementary local stores: SQLite holds
+the canonical record (content, source, timestamp), while ChromaDB
+holds a vector embedding of each memory (generated locally via
+all-MiniLM-L6-v2) for semantic search. Saving a memory writes to
+both; searching queries ChromaDB for the nearest matches and
+resolves them back to full records via SQLite. The Memories tab in
+the app lets you save notes and search them by meaning rather than
+exact keywords, fully local, no cloud calls.
 
 ## Tech Stack
 
