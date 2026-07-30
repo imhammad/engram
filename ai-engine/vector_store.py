@@ -2,9 +2,15 @@ from pathlib import Path
 
 import chromadb
 from sentence_transformers import SentenceTransformer
+import os
 
-DATA_DIR = Path(__file__).parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
+DATA_DIR = Path(
+    os.environ.get(
+        "ENGRAM_DATA_DIR",
+        str(Path(__file__).parent / "data"),
+    )
+)
+DATA_DIR.mkdir(exist_ok=True, parents=True)
 
 _client = chromadb.PersistentClient(path=str(DATA_DIR / "chroma"))
 _collection = _client.get_or_create_collection(name="memories")

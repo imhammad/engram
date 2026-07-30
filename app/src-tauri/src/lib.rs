@@ -20,13 +20,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![greet, ping])
         .setup(|app| {
             let model_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ai-engine/models");
+            let data_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ai-engine/data");
             let sidecar = app
                 .shell()
                 .sidecar("engram-ai-engine")
                 .expect("failed to create sidecar command")
-                .env("ENGRAM_MODEL_DIR", model_dir);
+                .env("ENGRAM_MODEL_DIR", model_dir)
+                .env("ENGRAM_DATA_DIR", data_dir);
             let (mut _rx, _child) = sidecar.spawn().expect("failed to spawn ai engine sidecar");
-            Ok(())
+        Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,9 +2,16 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 
-DB_PATH = Path(__file__).parent / "data" / "engram.db"
-DB_PATH.parent.mkdir(exist_ok=True)
+DATA_DIR = Path(
+    os.environ.get(
+        "ENGRAM_DATA_DIR",
+        str(Path(__file__).parent / "data"),
+    )
+)
+DATA_DIR.mkdir(exist_ok=True, parents=True)
+DB_PATH = DATA_DIR / "engram.db"
 
 
 def get_connection():
