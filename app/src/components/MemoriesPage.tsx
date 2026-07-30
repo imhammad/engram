@@ -15,6 +15,8 @@ export default function MemoriesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Memory[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const [captureMessage, setCaptureMessage] = useState<string | null>(null);
 
   async function loadMemories() {
     const res = await fetch(`${API_BASE}/memories`);
@@ -41,6 +43,26 @@ export default function MemoriesPage() {
       setLoading(false);
     }
   }
+
+  async function captureScreen() {
+  setCapturing(true);
+  setCaptureMessage(null);
+  try {
+    const res = await fetch(`${API_BASE}/capture/screen`, { method: "POST" });
+    const data = await res.json();
+    if (data.saved) {
+      setCaptureMessage("Captured and saved!");
+      await loadMemories();
+    } else {
+      setCaptureMessage(data.reason || "Nothing readable was captured.");
+    }
+  } catch (err) {
+    setCaptureMessage("Error: could not reach AI engine.");
+  } finally {
+    setCapturing(false);
+    setTimeout(() => setCaptureMessage(null), 3000);
+  }
+}
 
   async function runSearch() {
     if (!searchQuery.trim()) {
@@ -79,6 +101,22 @@ export default function MemoriesPage() {
           >
             Save
           </button>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="mb-2 text-lg font-semibold">Capture your screen</h2>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={captureScreen}
+            disabled={capturing}
+            className="rounded-lg bg-emerald-600 px-4 py-2 hover:bg-emerald-500 disabled:opacity-50"
+          >
+            {capturing ? "Capturing..." : "📸 Capture Screen"}
+          </button>
+          {captureMessage && (
+            <span className="text-sm text-slate-400">{captureMessage}</span>
+          )}
         </div>
       </div>
 
