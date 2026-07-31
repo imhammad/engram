@@ -1,6 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
 use tauri_plugin_shell::ShellExt;
+mod window_tracker;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -28,6 +29,7 @@ pub fn run() {
                 .env("ENGRAM_MODEL_DIR", model_dir)
                 .env("ENGRAM_DATA_DIR", data_dir);
             let (mut _rx, _child) = sidecar.spawn().expect("failed to spawn ai engine sidecar");
+            window_tracker::start_tracking(app.handle().clone());
         Ok(())
         })
         .run(tauri::generate_context!())
