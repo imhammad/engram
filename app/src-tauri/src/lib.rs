@@ -33,12 +33,20 @@ fn get_capture_paused(state: tauri::State<CaptureState>) -> bool {
     state.paused.load(Ordering::Relaxed)
 }
 
+#[tauri::command]
+fn show_popup(app: tauri::AppHandle) {
+    if let Some(popup) = app.get_webview_window("popup") {
+        let _ = popup.show();
+        let _ = popup.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, ping, set_capture_paused, get_capture_paused])
+        .invoke_handler(tauri::generate_handler![greet, ping, set_capture_paused, get_capture_paused, show_popup])
         .setup(|app| {
             let model_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ai-engine/models");
             let data_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ai-engine/data");
