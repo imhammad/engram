@@ -1,11 +1,14 @@
 use active_win_pos_rs::get_active_window;
 use serde_json::json;
 use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 const POLL_INTERVAL_SECS: u64 = 5;
 const DWELL_THRESHOLD_SECS: u64 = 30;
 
-pub fn start_tracking() {
+
+pub fn start_tracking(paused: Arc<AtomicBool>) {
     tauri::async_runtime::spawn(async move {
         let mut last_title = String::new();
         let mut window_start = Instant::now();
@@ -13,6 +16,11 @@ pub fn start_tracking() {
         let client = reqwest::Client::new();
 
         loop {
+            if paused.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_secs(POLL_INTERVAL_SECS)).await;
+                continue;
+            }
+
             if let Ok(window) = get_active_window() {
                 if window.title != last_title {
                     // Window changed — reset the dwell timer and capture flag

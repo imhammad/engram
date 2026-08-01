@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 type Memory = {
   id: string;
@@ -19,6 +20,7 @@ export default function MemoriesPage() {
   const [captureMessage, setCaptureMessage] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [audioMessage, setAudioMessage] = useState<string | null>(null);
+  const [captureEnabled, setCaptureEnabled] = useState(true);
 
   async function loadMemories() {
     const res = await fetch(`${API_BASE}/memories`);
@@ -44,6 +46,12 @@ export default function MemoriesPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function toggleCapture() {
+  const newPausedState = captureEnabled; // if currently enabled, we're about to pause it
+  await invoke("set_capture_paused", { paused: newPausedState });
+  setCaptureEnabled(!newPausedState);
   }
 
   async function captureScreen() {
@@ -107,6 +115,21 @@ async function captureAudio() {
 
   return (
     <div className="flex h-full w-full flex-col gap-6 p-8 text-white">
+      <div className="flex items-center justify-between rounded-lg bg-slate-800 px-4 py-2">
+        <span className="text-sm text-slate-300">
+          Automatic screen capture:{" "}
+          <span className={captureEnabled ? "text-emerald-400" : "text-rose-400"}>
+            {captureEnabled ? "Active" : "Paused"}
+          </span>
+        </span>
+        <button
+          onClick={toggleCapture}
+          className="rounded-lg bg-slate-700 px-3 py-1 text-sm hover:bg-slate-600"
+        >
+          {captureEnabled ? "Pause" : "Resume"}
+        </button>
+      </div>
+
       <div>
         <h2 className="mb-2 text-lg font-semibold">Save a memory</h2>
         <div className="flex gap-2">
