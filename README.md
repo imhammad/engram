@@ -51,7 +51,7 @@ same memory pipeline as typed notes:
 - **Audio capture**: `sounddevice` records an 8-second clip,
   `faster-whisper` (base.en, int8) transcribes it locally.
 
-Both run entirely on-device — no cloud APIs, no continuous
+Both run entirely on-device, no cloud APIs, no continuous
 background monitoring. This is a deliberate scope decision: always-on
 passive capture (the original "second brain" vision) introduces
 significant OS permission, resource-usage, and privacy-UX complexity
@@ -63,6 +63,37 @@ alongside the core capture mechanics.
   so results include UI chrome as noise.
 - Audio transcription accuracy varies; a larger Whisper model would
   improve this at the cost of speed/resource usage.
+
+
+## Phase 5 — Passive Awareness & Automatic Capture (complete)
+
+Engram tracks the active window/application in the background via a
+5-second poll, but only *acts* on sustained attention: automatic
+screen capture fires once per dwell session, after 30+ seconds on
+the same window, not on every poll. Rapid window-switching produces
+zero captures, this prevents both CPU waste and a memories table
+flooded with near-duplicate noise.
+
+**Automatic capture is screen-only, and audio remains manual-only
+by deliberate design, not an oversight.** Screen content is always
+the user's own data. Passive audio capture would risk silently
+recording other people's voices during calls or in shared spaces,
+a real problem both ethically and legally (many jurisdictions
+require two-party consent to record conversations). For a
+privacy-first app, that tradeoff isn't worth automating; the user
+explicitly choosing to hit "record" *is* the consent.
+
+Users can fully pause and resume automatic capture at any time via
+a toggle in the Memories tab, since even screen capture should
+never feel like silent surveillance the user can't see or control.
+
+**Known limitations (tracked for future refinement):**
+- Dwell threshold (30s) and poll interval (5s) are currently fixed
+  constants; making these user-configurable is a reasonable future
+  addition.
+- No visual indicator currently shows *when* an automatic capture
+  is actively happening (only that the feature is enabled/paused),
+  a brief on-screen notification would improve transparency further.
 
 ## Tech Stack
 
