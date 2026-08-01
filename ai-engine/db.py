@@ -32,6 +32,17 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id TEXT PRIMARY KEY,
+            window_title TEXT NOT NULL,
+            app_name TEXT NOT NULL,
+            started_at TEXT NOT NULL
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
 
@@ -70,3 +81,17 @@ def get_memories_by_ids(ids: list[str]) -> dict[str, dict]:
     ).fetchall()
     conn.close()
     return {row["id"]: dict(row) for row in rows}
+
+def log_activity(window_title: str, app_name: str) -> dict:
+    entry_id = str(uuid.uuid4())
+    started_at = datetime.now(timezone.utc).isoformat()
+
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO activity_log (id, window_title, app_name, started_at) VALUES (?, ?, ?, ?)",
+        (entry_id, window_title, app_name, started_at),
+    )
+    conn.commit()
+    conn.close()
+
+    return {"id": entry_id, "window_title": window_title, "app_name": app_name, "started_at": started_at}
