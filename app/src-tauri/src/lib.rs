@@ -29,7 +29,7 @@ pub fn run() {
                 .env("ENGRAM_MODEL_DIR", model_dir)
                 .env("ENGRAM_DATA_DIR", data_dir);
             let (mut _rx, _child) = sidecar.spawn().expect("failed to spawn ai engine sidecar");
-            window_tracker::start_tracking(app.handle().clone());
+            window_tracker::start_tracking();
         Ok(())
         })
         .run(tauri::generate_context!())

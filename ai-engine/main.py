@@ -4,9 +4,9 @@ from llama_cpp import Llama
 import os
 from pydantic import BaseModel
 from vector_store import add_to_vector_store, query_vector_store
-from db import init_db, insert_memory, get_all_memories, get_memories_by_ids
 from ocr_capture import capture_screen_text
 from audio_capture import record_and_transcribe
+from db import init_db, insert_memory, get_all_memories, get_memories_by_ids, log_activity
 
 app = FastAPI(title="Engram AI Engine")
 
@@ -32,6 +32,15 @@ print("Model loaded successfully.")
 
 class MemoryCreate(BaseModel):
     content: str
+
+class ActivityEntry(BaseModel):
+    window_title: str
+    app_name: str
+
+
+@app.post("/activity")
+def record_activity(entry: ActivityEntry):
+    return log_activity(entry.window_title, entry.app_name)
 
 
 @app.post("/memories")
