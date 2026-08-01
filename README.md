@@ -95,6 +95,38 @@ never feel like silent surveillance the user can't see or control.
   is actively happening (only that the feature is enabled/paused),
   a brief on-screen notification would improve transparency further.
 
+## Phase 6 — Background Service & Tray UX (complete)
+
+Engram now runs as a true background application rather than
+requiring a visible window at all times:
+
+- **System tray icon** with Show/Quit menu, closing the main window
+  hides it instead of terminating the app; window tracking and
+  automatic capture keep running.
+- **Standalone popup window** borderless, always-on-top, anchored
+  to the screen corner, dynamically positioned to account for
+  display scaling. Appears automatically when a dwell-triggered
+  capture succeeds, showing which window was captured, dismissible
+  via a close button. Does not steal keyboard focus, so it never
+  interrupts the user's current task.
+
+This is the first phase where Engram behaves like the intended
+product vision, a quiet, always-available assistant, rather than
+an app the user has to actively operate.
+
+**Engineering note:** Tauri v2 requires every window to be
+explicitly granted permission in a capabilities file before it can
+invoke backend commands, a deliberate security boundary that fails
+silently rather than erroring, which cost some debugging time here
+and is worth remembering for any future additional windows.
+
+**Known limitations (tracked for future refinement):**
+- Popup only triggers on screen-capture events; audio capture
+  (manual-only, per Phase 5's privacy reasoning) does not yet
+  surface a popup notification.
+- No sound/animation on popup appearance, currently silent, which
+  may be too subtle for some users to notice.
+
 ## Tech Stack
 
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS
