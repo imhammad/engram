@@ -44,10 +44,16 @@
     </div>
     <p id="message">Engram noticed something</p>
 
-    <script>
-      document.getElementById("close-btn").addEventListener("click", () => {
-        window.__TAURI__.core.invoke("hide_popup");
-      });
+    <script type="module">
+        const { listen } = window.__TAURI__.event;
+
+        listen("popup-message", (event) => {
+            document.getElementById("message").textContent = event.payload;
+        });
+
+        document.getElementById("close-btn").addEventListener("click", () => {
+            window.__TAURI__.core.invoke("hide_popup");
+        });
     </script>
   </body>
 </html>
