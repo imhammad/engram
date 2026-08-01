@@ -12,9 +12,21 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "app",
         "width": 800,
         "height": 600
+      },
+      {
+        "label": "popup",
+        "title": "Engram",
+        "width": 320,
+        "height": 120,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "url": "popup.html"
       }
     ],
     "security": {

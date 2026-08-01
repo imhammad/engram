@@ -211,6 +211,13 @@ async function captureAudio() {
         </div>
       </div>
 
+      <button
+        onClick={() => invoke("show_popup")}
+        className="rounded-lg bg-purple-600 px-4 py-2 hover:bg-purple-500"
+      >
+        Test Popup
+      </button>
+
       <div className="flex flex-col gap-2 overflow-y-auto">
         <h2 className="text-lg font-semibold">
           {searchResults ? "Search results" : "All memories"}
