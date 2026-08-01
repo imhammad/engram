@@ -1,14 +1,14 @@
 use active_win_pos_rs::get_active_window;
 use serde_json::json;
-use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Manager};
 
 const POLL_INTERVAL_SECS: u64 = 5;
 const DWELL_THRESHOLD_SECS: u64 = 30;
 
-
-pub fn start_tracking(paused: Arc<AtomicBool>) {
+pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
     tauri::async_runtime::spawn(async move {
         let mut last_title = String::new();
         let mut window_start = Instant::now();
@@ -23,7 +23,6 @@ pub fn start_tracking(paused: Arc<AtomicBool>) {
 
             if let Ok(window) = get_active_window() {
                 if window.title != last_title {
-                    // Window changed — reset the dwell timer and capture flag
                     println!(
                         "[window-tracker] switched to: {} ({})",
                         window.title, window.app_name
@@ -42,7 +41,6 @@ pub fn start_tracking(paused: Arc<AtomicBool>) {
                         .send()
                         .await;
                 } else {
-                    // Same window — check how long they've dwelled here
                     let dwell_secs = window_start.elapsed().as_secs();
                     if !captured_this_session && dwell_secs >= DWELL_THRESHOLD_SECS {
                         println!(
@@ -51,14 +49,30 @@ pub fn start_tracking(paused: Arc<AtomicBool>) {
                         );
                         captured_this_session = true;
 
-                        // Spawn as a separate task so a slow OCR capture
-                        // never blocks our 5-second polling loop.
                         let capture_client = client.clone();
+                        let app_handle = app.clone();
+                        let window_title = window.title.clone();
+
                         tauri::async_runtime::spawn(async move {
-                            let _ = capture_client
+                            let result = capture_client
                                 .post("http://127.0.0.1:8000/capture/screen")
                                 .send()
                                 .await;
+
+                            if let Ok(response) = result {
+                                if let Ok(body) = response.json::<serde_json::Value>().await {
+                                    if body["saved"].as_bool() == Some(true) {
+                                        if let Some(popup) = app_handle.get_webview_window("popup") {
+                                            let message = format!(
+                                                "Captured content from \"{}\"",
+                                                window_title
+                                            );
+                                            let _ = popup.emit("popup-message", message);
+                                            let _ = popup.show();
+                                        }
+                                    }
+                                }
+                            }
                         });
                     }
                 }

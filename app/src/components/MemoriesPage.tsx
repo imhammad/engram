@@ -212,7 +212,7 @@ async function captureAudio() {
       </div>
 
       <button
-        onClick={() => invoke("show_popup")}
+        onClick={() => invoke("show_popup", { message: "Engram noticed something (test)" })}
         className="rounded-lg bg-purple-600 px-4 py-2 hover:bg-purple-500"
       >
         Test Popup
