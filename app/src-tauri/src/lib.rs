@@ -36,8 +36,28 @@ fn get_capture_paused(state: tauri::State<CaptureState>) -> bool {
 #[tauri::command]
 fn show_popup(app: tauri::AppHandle) {
     if let Some(popup) = app.get_webview_window("popup") {
+        if let Ok(Some(monitor)) = popup.current_monitor() {
+            let screen_size = monitor.size();
+            let scale = monitor.scale_factor();
+
+            let popup_width = 340.0 * scale;
+            let popup_height = 100.0 * scale;
+            let margin = 20.0 * scale;
+
+            let x = screen_size.width as f64 - popup_width - margin;
+            let y = screen_size.height as f64 - popup_height - margin - (60.0 * scale); // extra offset clears the Windows taskbar
+
+            let _ = popup.set_position(tauri::PhysicalPosition::new(x, y));
+        }
         let _ = popup.show();
         let _ = popup.set_focus();
+    }
+}
+
+#[tauri::command]
+fn hide_popup(app: tauri::AppHandle) {
+    if let Some(popup) = app.get_webview_window("popup") {
+        let _ = popup.hide();
     }
 }
 
@@ -46,7 +66,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, ping, set_capture_paused, get_capture_paused, show_popup])
+        .invoke_handler(tauri::generate_handler![greet, ping, set_capture_paused, get_capture_paused, show_popup, hide_popup])
         .setup(|app| {
             let model_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ai-engine/models");
             let data_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ai-engine/data");
