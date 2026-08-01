@@ -8,14 +8,46 @@
         font-family: system-ui, sans-serif;
         background: #1e293b;
         color: white;
-        padding: 16px;
-        border-radius: 8px;
+        padding: 14px 16px;
+        border-radius: 10px;
         overflow: hidden;
+        box-sizing: border-box;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
       }
-      p { margin: 0; font-size: 14px; }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .close-btn {
+        cursor: pointer;
+        color: #94a3b8;
+        font-size: 16px;
+        border: none;
+        background: none;
+        padding: 0 4px;
+      }
+      .close-btn:hover { color: white; }
+      p { margin: 8px 0 0 0; font-size: 14px; line-height: 1.4; }
     </style>
+    <script type="module">
+      import { invoke } from "https://cdn.jsdelivr.net/npm/@tauri-apps/api@2/window.min.js";
+    </script>
   </head>
   <body>
-    <p id="message">🧠 Engram noticed something</p>
+    <div class="header">
+      <strong>🧠 Engram</strong>
+      <button class="close-btn" id="close-btn">✕</button>
+    </div>
+    <p id="message">Engram noticed something</p>
+
+    <script>
+      document.getElementById("close-btn").addEventListener("click", () => {
+        window.__TAURI__.core.invoke("hide_popup");
+      });
+    </script>
   </body>
 </html>
