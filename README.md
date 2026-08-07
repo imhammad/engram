@@ -59,8 +59,16 @@ that deserves its own dedicated phase rather than being rushed in
 alongside the core capture mechanics.
 
 **Known limitations (tracked for future refinement):**
-- Screen OCR captures the full monitor rather than the active window,
-  so results include UI chrome as noise.
+- ~~Screen OCR captures the full monitor rather than the active
+  window~~ resolved: automatic captures now scope to the active
+  window's actual bounds (see Phase 6.x fix). Manual "Capture Screen"
+  still intentionally captures the full screen by design.
+- OCR still picks up UI chrome *within* the scoped window (browser
+  bookmarks bar, tab titles) as noise alongside real content. A
+  further refinement would filter Tesseract's output by detected
+  text size/region to exclude small peripheral UI text — not
+  pursued yet, as it adds real complexity for a secondary quality
+  improvement rather than a functional gap.
 - Audio transcription accuracy varies; a larger Whisper model would
   improve this at the cost of speed/resource usage.
 
