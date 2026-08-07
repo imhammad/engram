@@ -37,6 +37,16 @@ class ActivityEntry(BaseModel):
     window_title: str
     app_name: str
 
+class CaptureRegion(BaseModel):
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+class ScreenCaptureRequest(BaseModel):
+    region: CaptureRegion | None = None
+
 
 @app.post("/activity")
 def record_activity(entry: ActivityEntry):
@@ -64,6 +74,17 @@ def capture_audio():
     if not transcript:
         return {"saved": False, "reason": "No speech detected."}
     saved = insert_memory(transcript, source="audio_transcription")
+    add_to_vector_store(saved["id"], saved["content"])
+    return {"saved": True, "memory": saved}
+
+
+@app.post("/capture/screen")
+def capture_screen(request: ScreenCaptureRequest = ScreenCaptureRequest()):
+    region_dict = request.region.dict() if request.region else None
+    captured_text = capture_screen_text(region_dict)
+    if not captured_text:
+        return {"saved": False, "reason": "No readable text found on screen."}
+    saved = insert_memory(captured_text, source="screen_ocr")
     add_to_vector_store(saved["id"], saved["content"])
     return {"saved": True, "memory": saved}
 
