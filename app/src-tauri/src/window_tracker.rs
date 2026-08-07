@@ -49,13 +49,21 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                         );
                         captured_this_session = true;
 
+                        // --- UPDATED CAPTURE BLOCK START ---
                         let capture_client = client.clone();
                         let app_handle = app.clone();
                         let window_title = window.title.clone();
+                        let region = json!({
+                            "x": window.position.x as i64,
+                            "y": window.position.y as i64,
+                            "width": window.position.width as i64,
+                            "height": window.position.height as i64,
+                        });
 
                         tauri::async_runtime::spawn(async move {
                             let result = capture_client
                                 .post("http://127.0.0.1:8000/capture/screen")
+                                .json(&json!({ "region": region }))
                                 .send()
                                 .await;
 
@@ -74,6 +82,7 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                                 }
                             }
                         });
+                        
                     }
                 }
             }

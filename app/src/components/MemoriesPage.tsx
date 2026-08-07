@@ -136,44 +136,46 @@ async function captureAudio() {
       </div>
     </div>
 
-    <div className="flex items-center justify-between rounded-md border border-border bg-surface px-4 py-2">
-      <span className="text-sm text-ink-muted">
-        Automatic screen capture:{" "}
-        <span className={captureEnabled ? "text-accent" : "text-red-600"}>
-          {captureEnabled ? "Active" : "Paused"}
-        </span>
-      </span>
-      <button
-        onClick={toggleCapture}
-        className="rounded-md border border-border px-3 py-1 text-sm hover:bg-surface-muted"
-      >
-        {captureEnabled ? "Pause" : "Resume"}
-      </button>
-    </div>
-
-    <div className="flex gap-3">
-      <button
-        onClick={captureScreen}
-        disabled={capturing}
-        className="rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium hover:bg-surface-muted disabled:opacity-50"
-      >
-        {capturing ? "Capturing..." : "📸 Capture Screen"}
-      </button>
-      {captureMessage && (
-        <span className="self-center text-sm text-ink-muted">{captureMessage}</span>
-      )}
-    </div>
-
-    <div className="flex gap-3">
-      <button
-        onClick={captureAudio}
-        disabled={recording}
-        className="rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium hover:bg-surface-muted disabled:opacity-50"
-      >
-        {recording ? "🎙️ Recording..." : "🎙️ Record 8s"}
-      </button>
-      {audioMessage && (
-        <span className="self-center text-sm text-ink-muted">{audioMessage}</span>
+    <div className="rounded-md border border-border bg-surface p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
+          Capture
+        </h2>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-ink-muted">
+            Auto-capture:{" "}
+            <span className={captureEnabled ? "text-accent" : "text-red-600"}>
+              {captureEnabled ? "Active" : "Paused"}
+            </span>
+          </span>
+          <button
+            onClick={toggleCapture}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-muted"
+          >
+            {captureEnabled ? "Pause" : "Resume"}
+          </button>
+        </div>
+      </div>
+      <div className="flex gap-3">
+        <button
+          onClick={captureScreen}
+          disabled={capturing}
+          className="rounded-md border border-border bg-canvas px-4 py-2 text-sm font-medium hover:bg-surface-muted disabled:opacity-50"
+        >
+          {capturing ? "Capturing..." : "📸 Capture Screen"}
+        </button>
+        <button
+          onClick={captureAudio}
+          disabled={recording}
+          className="rounded-md border border-border bg-canvas px-4 py-2 text-sm font-medium hover:bg-surface-muted disabled:opacity-50"
+        >
+          {recording ? "🎙️ Recording..." : "🎙️ Record 8s"}
+        </button>
+      </div>
+      {(captureMessage || audioMessage) && (
+        <p className="mt-2 text-sm text-ink-muted">
+          {captureMessage || audioMessage}
+        </p>
       )}
     </div>
 
@@ -209,7 +211,7 @@ async function captureAudio() {
       </div>
     </div>
 
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 pr-2">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
         {searchResults ? "Search results" : "All memories"}
       </h2>
