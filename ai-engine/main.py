@@ -47,6 +47,21 @@ class CaptureRegion(BaseModel):
 class ScreenCaptureRequest(BaseModel):
     region: CaptureRegion | None = None
 
+CONNECTION_DISTANCE_THRESHOLD = 0.9  # lower distance = more similar; tune based on testing
+
+
+def find_related_memory(new_memory: dict) -> dict | None:
+    matches = query_vector_store(
+        new_memory["content"], n_results=1, exclude_id=new_memory["id"]
+    )
+    if not matches:
+        return None
+    top_match = matches[0]
+    if top_match["distance"] > CONNECTION_DISTANCE_THRESHOLD:
+        return None
+    related = get_memories_by_ids([top_match["id"]])
+    return related.get(top_match["id"])
+
 
 @app.post("/activity")
 def record_activity(entry: ActivityEntry):
@@ -57,16 +72,20 @@ def record_activity(entry: ActivityEntry):
 def create_memory(memory: MemoryCreate):
     saved = insert_memory(memory.content)
     add_to_vector_store(saved["id"], saved["content"])
-    return saved
+    related = find_related_memory(saved)
+    return {"memory": saved, "related_memory": related}
 
 @app.post("/capture/screen")
-def capture_screen():
-    captured_text = capture_screen_text()
+def capture_screen(request: ScreenCaptureRequest = ScreenCaptureRequest()):
+    region_dict = request.region.dict() if request.region else None
+    captured_text = capture_screen_text(region_dict)
     if not captured_text:
         return {"saved": False, "reason": "No readable text found on screen."}
     saved = insert_memory(captured_text, source="screen_ocr")
     add_to_vector_store(saved["id"], saved["content"])
-    return {"saved": True, "memory": saved}
+    related = find_related_memory(saved)
+    return {"saved": True, "memory": saved, "related_memory": related}
+
 
 @app.post("/capture/audio")
 def capture_audio():
@@ -75,7 +94,8 @@ def capture_audio():
         return {"saved": False, "reason": "No speech detected."}
     saved = insert_memory(transcript, source="audio_transcription")
     add_to_vector_store(saved["id"], saved["content"])
-    return {"saved": True, "memory": saved}
+    related = find_related_memory(saved)
+    return {"saved": True, "memory": saved, "related_memory": related}
 
 
 @app.post("/capture/screen")
@@ -109,9 +129,9 @@ def generate(prompt: str):
 
 @app.get("/search")
 def search_memories(q: str, limit: int = 5):
-    matching_ids = query_vector_store(q, n_results=limit)
+    matches = query_vector_store(q, n_results=limit)
+    matching_ids = [m["id"] for m in matches]
     memories_by_id = get_memories_by_ids(matching_ids)
-    # preserve the relevance order returned by the vector search
     return [memories_by_id[mid] for mid in matching_ids if mid in memories_by_id]
 
 

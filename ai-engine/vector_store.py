@@ -33,12 +33,23 @@ def add_to_vector_store(memory_id: str, content: str) -> None:
     )
 
 
-def query_vector_store(query_text: str, n_results: int = 5) -> list[str]:
+def query_vector_store(query_text: str, n_results: int = 5, exclude_id: str | None = None) -> list[dict]:
     query_embedding = embed_text(query_text)
+    # Fetch a couple extra in case we need to filter out exclude_id
+    fetch_count = n_results + 1 if exclude_id else n_results
     results = _collection.query(
         query_embeddings=[query_embedding],
-        n_results=n_results,
+        n_results=fetch_count,
     )
     if not results["ids"] or not results["ids"][0]:
         return []
-    return results["ids"][0]
+
+    matches = []
+    for i, mid in enumerate(results["ids"][0]):
+        if exclude_id and mid == exclude_id:
+            continue
+        matches.append({
+            "id": mid,
+            "distance": results["distances"][0][i],
+        })
+    return matches[:n_results]
