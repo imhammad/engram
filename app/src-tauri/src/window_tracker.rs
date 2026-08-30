@@ -71,10 +71,16 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                                 if let Ok(body) = response.json::<serde_json::Value>().await {
                                     if body["saved"].as_bool() == Some(true) {
                                         if let Some(popup) = app_handle.get_webview_window("popup") {
-                                            let message = format!(
-                                                "Captured content from \"{}\"",
-                                                window_title
-                                            );
+                                            let message = if let Some(related) = body["related_memory"].as_object() {
+                                                let related_content = related
+                                                    .get("content")
+                                                    .and_then(|c| c.as_str())
+                                                    .unwrap_or("");
+                                                let snippet: String = related_content.chars().take(80).collect();
+                                                format!("This connects to something you saved before: \"{}...\"", snippet)
+                                            } else {
+                                                format!("Captured content from \"{}\"", window_title)
+                                            };
                                             let _ = popup.emit("popup-message", message);
                                             let _ = popup.show();
                                         }

@@ -21,6 +21,7 @@ export default function MemoriesPage() {
   const [recording, setRecording] = useState(false);
   const [audioMessage, setAudioMessage] = useState<string | null>(null);
   const [captureEnabled, setCaptureEnabled] = useState(true);
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
 
   async function loadMemories() {
     const res = await fetch(`${API_BASE}/memories`);
@@ -32,21 +33,28 @@ export default function MemoriesPage() {
     loadMemories();
   }, []);
 
-  async function saveMemory() {
-    if (!newMemory.trim()) return;
-    setLoading(true);
-    try {
-      await fetch(`${API_BASE}/memories`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: newMemory }),
-      });
-      setNewMemory("");
-      await loadMemories();
-    } finally {
-      setLoading(false);
+async function saveMemory() {
+  if (!newMemory.trim()) return;
+  setLoading(true);
+  try {
+    const res = await fetch(`${API_BASE}/memories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: newMemory }),
+    });
+    const data = await res.json();
+    setNewMemory("");
+    if (data.related_memory) {
+      setConnectionMessage(
+        `This connects to: "${data.related_memory.content}"`
+      );
+      setTimeout(() => setConnectionMessage(null), 6000);
     }
+    await loadMemories();
+  } finally {
+    setLoading(false);
   }
+}
 
   async function toggleCapture() {
   const newPausedState = captureEnabled; // if currently enabled, we're about to pause it
@@ -126,6 +134,11 @@ async function captureAudio() {
           placeholder="Write something to remember..."
           className="flex-1 rounded-md border border-border bg-surface px-4 py-2 text-ink outline-none placeholder:text-ink-muted focus:border-accent"
         />
+        {connectionMessage && (
+        <p className="mt-2 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-sm text-accent">
+          🔗 {connectionMessage}
+        </p>
+      )}
         <button
           onClick={saveMemory}
           disabled={loading}
