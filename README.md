@@ -4,7 +4,7 @@ A privacy-first, local-first "second brain" desktop app. Engram runs
 entirely on your machine — no cloud AI calls, no data leaving your
 laptop — and helps you query your own working memory using local AI.
 
-## Status: Phase 1 — Desktop Foundation (in progress)
+## Status: Phase 1 - Desktop Foundation (in progress)
 
 - [x] Tauri v2 + React + Vite scaffold
 - [x] Tailwind CSS integration
@@ -12,9 +12,9 @@ laptop — and helps you query your own working memory using local AI.
 - [x] Basic app shell (sidebar + main content layout)
 - [x] Local AI engine (Phase 2)
 - [x] Memory graph / RAG pipeline (Phase 3)
-- [x] Manual Capture — screen OCR + audio (Phase 4)
+- [x] Manual Capture, screen OCR + audio (Phase 4)
 
-## Phase 2 — Local AI Engine (complete)
+## Phase 2 - Local AI Engine (complete)
 
 The AI engine is a Python/FastAPI service running `llama.cpp` with a
 quantized local model (currently TinyLlama, for pipeline validation,
@@ -30,7 +30,7 @@ source tree, which works in dev but won't survive a real installer
 on another machine. This will be resolved when we build proper
 resource bundling for distribution.
 
-## Phase 3 — Memory Graph / RAG Pipeline (complete)
+## Phase 3 - Memory Graph / RAG Pipeline (complete)
 
 Memories are stored in two complementary local stores: SQLite holds
 the canonical record (content, source, timestamp), while ChromaDB
@@ -41,7 +41,7 @@ resolves them back to full records via SQLite. The Memories tab in
 the app lets you save notes and search them by meaning rather than
 exact keywords, fully local, no cloud calls.
 
-## Phase 4 — Manual Capture: Screen OCR + Audio (complete)
+## Phase 4 - Manual Capture: Screen OCR + Audio (complete)
 
 Users can manually trigger two capture modes, both saved through the
 same memory pipeline as typed notes:
@@ -73,7 +73,7 @@ alongside the core capture mechanics.
   improve this at the cost of speed/resource usage.
 
 
-## Phase 5 — Passive Awareness & Automatic Capture (complete)
+## Phase 5 - Passive Awareness & Automatic Capture (complete)
 
 Engram tracks the active window/application in the background via a
 5-second poll, but only *acts* on sustained attention: automatic
@@ -103,7 +103,7 @@ never feel like silent surveillance the user can't see or control.
   is actively happening (only that the feature is enabled/paused),
   a brief on-screen notification would improve transparency further.
 
-## Phase 6 — Background Service & Tray UX (complete)
+## Phase 6 - Background Service & Tray UX (complete)
 
 Engram now runs as a true background application rather than
 requiring a visible window at all times:
@@ -121,6 +121,30 @@ requiring a visible window at all times:
 This is the first phase where Engram behaves like the intended
 product vision, a quiet, always-available assistant, rather than
 an app the user has to actively operate.
+
+## Phase 7 - Proactive Suggestions: Connection Surfacing (complete)
+
+Engram now checks every new memory (typed, screen-captured, or
+audio-transcribed) against everything already stored, using vector
+distance from ChromaDB. If a genuinely close semantic match exists,
+the UI surfaces the connection instead of a generic save
+confirmation, a teal banner for manual saves, or the popup content
+for automatic captures.
+
+**The similarity threshold (0.9) was calibrated empirically, not
+guessed:** related-but-differently-phrased content scored 0.61-0.88
+in testing, while genuinely unrelated content scored 1.20+, giving
+clear separation to threshold against.
+
+**Known limitations (tracked for future refinement):**
+- Semantic distance is sensitive to phrasing style, a question
+  about a topic scores measurably further from a statement about
+  the same topic than two similarly-phrased statements would,
+  a known property of sentence embeddings generally, not specific
+  to this threshold choice.
+- Connection surfacing only compares against the single closest
+  match; a memory connected to multiple past entries only surfaces
+  the nearest one.
 
 **Engineering note:** Tauri v2 requires every window to be
 explicitly granted permission in a capabilities file before it can
@@ -173,5 +197,5 @@ npm run tauri dev
 ## Philosophy
 
 Everything runs locally. No user data — screen content, audio,
-notes — ever leaves the device. This is a deliberate constraint,
+notes, ever leaves the device. This is a deliberate constraint,
 not a limitation.
