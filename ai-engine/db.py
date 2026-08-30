@@ -95,3 +95,25 @@ def log_activity(window_title: str, app_name: str) -> dict:
     conn.close()
 
     return {"id": entry_id, "window_title": window_title, "app_name": app_name, "started_at": started_at}
+
+
+def get_stats() -> dict:
+    conn = get_connection()
+    total = conn.execute("SELECT COUNT(*) as c FROM memories").fetchone()["c"]
+    by_source = conn.execute(
+        "SELECT source, COUNT(*) as c FROM memories GROUP BY source"
+    ).fetchall()
+    conn.close()
+    return {
+        "total_memories": total,
+        "by_source": {row["source"]: row["c"] for row in by_source},
+    }
+
+
+def get_recent_activity(limit: int = 15) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM activity_log ORDER BY started_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
