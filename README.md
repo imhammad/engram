@@ -111,6 +111,7 @@ requiring a visible window at all times:
 - **System tray icon** with Show/Quit menu, closing the main window
   hides it instead of terminating the app; window tracking and
   automatic capture keep running.
+  
 - **Standalone popup window** borderless, always-on-top, anchored
   to the screen corner, dynamically positioned to account for
   display scaling. Appears automatically when a dwell-triggered
