@@ -136,6 +136,17 @@ guessed:** related-but-differently-phrased content scored 0.61-0.88
 in testing, while genuinely unrelated content scored 1.20+, giving
 clear separation to threshold against.
 
+## Phase 8 - Dashboard & Activity Visualization (complete)
+
+Added a Dashboard tab showing memory statistics and recent activity:
+total memory count, a breakdown by source (typed/screen/audio) shown
+as proportional bars, and a feed of recently tracked window activity.
+Backed by two new endpoints (GET /stats, GET /activity) built on the
+existing SQLite tables, no new storage or capture logic needed,
+just querying data Engram was already collecting. This phase was
+inserted ahead of planned Phase 9 (CI/CD) specifically to give the
+project a visible payoff after several infrastructure-heavy phases.
+
 **Known limitations (tracked for future refinement):**
 - Semantic distance is sensitive to phrasing style, a question
   about a topic scores measurably further from a statement about
