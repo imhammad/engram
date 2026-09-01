@@ -1,5 +1,7 @@
 # Engram
 
+![CI](https://github.com/imhammad/engram/actions/workflows/ci.yml/badge.svg)
+
 A privacy-first, local-first "second brain" desktop app. Engram runs
 entirely on your machine — no cloud AI calls, no data leaving your
 laptop — and helps you query your own working memory using local AI.
@@ -147,6 +149,23 @@ existing SQLite tables, no new storage or capture logic needed,
 just querying data Engram was already collecting. This phase was
 inserted ahead of planned Phase 9 (CI/CD) specifically to give the
 project a visible payoff after several infrastructure-heavy phases.
+
+## Phase 9 - CI/CD & Testing (complete)
+
+GitHub Actions runs on every pull request and push to main, across
+three independent jobs: frontend build (Vite), Rust compile check
+(cargo check, with Tauri's Linux system dependencies installed in
+the runner), and Python unit tests (pytest).
+
+**Test scope is deliberate, not exhaustive:** unit tests currently
+cover `db.py` (the SQLite storage layer) with 9 tests, using a
+temp-directory-isolated database per test via the same
+`ENGRAM_DATA_DIR` environment variable mechanism used by the real
+app. Modules that load heavy local AI models on import (TinyLlama,
+the embedder, Whisper) are not unit-tested yet, doing so properly
+would require mocking model loading, which is a reasonable future
+addition but wasn't the highest-value use of this phase's effort.
+CI is intentionally fast (seconds, not minutes) as a result.
 
 **Known limitations (tracked for future refinement):**
 - Semantic distance is sensitive to phrasing style, a question

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+      - name: Build frontend
+        working-directory: app
+        run: npm run build
+
+  rust-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Create placeholder sidecar binary
+        working-directory: app/src-tauri
+        run: |
+          New-Item -ItemType Directory -Force -Path binaries
+          New-Item -ItemType File -Force -Path binaries/engram-ai-engine-x86_64-pc-windows-msvc.exe
+        shell: pwsh
+      - name: Check Rust compiles
+        working-directory: app/src-tauri
+        run: cargo check
+
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        working-directory: ai-engine
+        run: pip install pytest
+      - name: Run unit tests
+        working-directory: ai-engine
+        run: pytest tests/ -v
