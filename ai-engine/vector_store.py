@@ -53,3 +53,12 @@ def query_vector_store(query_text: str, n_results: int = 5, exclude_id: str | No
             "distance": results["distances"][0][i],
         })
     return matches[:n_results]
+
+def delete_from_vector_store(memory_id: str) -> None:
+    _collection.delete(ids=[memory_id])
+
+
+def delete_all_from_vector_store() -> None:
+    all_ids = _collection.get()["ids"]
+    if all_ids:
+        _collection.delete(ids=all_ids)

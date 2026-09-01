@@ -82,6 +82,11 @@ async function saveMemory() {
   }
 }
 
+async function deleteMemory(id: string) {
+  await fetch(`${API_BASE}/memories/${id}`, { method: "DELETE" });
+  await loadMemories();
+}
+
 async function captureAudio() {
   setRecording(true);
   setAudioMessage("Listening... speak now (8 seconds)");
@@ -234,12 +239,20 @@ async function captureAudio() {
       {listToShow.map((m) => (
         <div
           key={m.id}
-          className="rounded-md border border-border bg-surface p-3"
+          className="flex items-start justify-between rounded-md border border-border bg-surface p-3"
         >
-          <p className="text-sm text-ink">{m.content}</p>
-          <p className="mt-1 font-mono text-xs text-ink-muted">
-            {new Date(m.created_at).toLocaleString()} · {m.source}
-          </p>
+          <div>
+            <p className="text-sm text-ink">{m.content}</p>
+            <p className="mt-1 font-mono text-xs text-ink-muted">
+              {new Date(m.created_at).toLocaleString()} · {m.source}
+            </p>
+          </div>
+          <button
+            onClick={() => deleteMemory(m.id)}
+            className="ml-2 text-xs text-ink-muted hover:text-red-600"
+          >
+            ✕
+          </button>
         </div>
       ))}
     </div>

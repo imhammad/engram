@@ -84,3 +84,29 @@ def test_get_stats_counts_by_source(db_module):
     assert stats["total_memories"] == 3
     assert stats["by_source"]["manual"] == 2
     assert stats["by_source"]["screen_ocr"] == 1
+
+def test_delete_memory_removes_it(db_module):
+    saved = db_module.insert_memory("to be deleted")
+    result = db_module.delete_memory(saved["id"])
+    assert result is True
+    assert db_module.get_all_memories() == []
+
+
+def test_delete_memory_returns_false_for_unknown_id(db_module):
+    result = db_module.delete_memory(str(uuid.uuid4()))
+    assert result is False
+
+
+def test_delete_all_memories_removes_everything(db_module):
+    db_module.insert_memory("one")
+    db_module.insert_memory("two")
+    count = db_module.delete_all_memories()
+    assert count == 2
+    assert db_module.get_all_memories() == []
+
+
+def test_delete_all_activity_removes_everything(db_module):
+    db_module.log_activity("Window A", "AppA")
+    db_module.log_activity("Window B", "AppB")
+    count = db_module.delete_all_activity()
+    assert count == 2
