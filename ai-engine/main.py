@@ -2,13 +2,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from llama_cpp import Llama
 import os
+from datetime import datetime, timezone
 from pydantic import BaseModel
-from vector_store import add_to_vector_store, query_vector_store
 from ocr_capture import capture_screen_text
 from audio_capture import record_and_transcribe
 from db import (
     init_db, insert_memory, get_all_memories, get_memories_by_ids,
     log_activity, get_stats, get_recent_activity,
+    delete_memory, delete_all_memories, delete_all_activity,
+)
+from vector_store import (
+    add_to_vector_store, query_vector_store,
+    delete_from_vector_store, delete_all_from_vector_store,
 )
 
 app = FastAPI(title="Engram AI Engine")
@@ -74,6 +79,33 @@ def record_activity(entry: ActivityEntry):
 def stats():
     return get_stats()
 
+@app.delete("/memories/{memory_id}")
+def delete_single_memory(memory_id: str):
+    deleted = delete_memory(memory_id)
+    if deleted:
+        delete_from_vector_store(memory_id)
+    return {"deleted": deleted}
+
+
+@app.delete("/memories")
+def delete_all_memories_endpoint():
+    count = delete_all_memories()
+    delete_all_from_vector_store()
+    return {"deleted_count": count}
+
+
+@app.get("/export")
+def export_all_data():
+    return {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "memories": get_all_memories(),
+        "activity_log": get_recent_activity(limit=10000),
+    }
+
+@app.delete("/activity")
+def clear_activity_log():
+    count = delete_all_activity()
+    return {"deleted_count": count}
 
 @app.get("/activity")
 def recent_activity(limit: int = 15):

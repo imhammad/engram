@@ -2,6 +2,7 @@ import { useState } from "react";
 import "./App.css";
 import MemoriesPage from "./components/MemoriesPage";
 import DashboardPage from "./components/DashboardPage";
+import SettingsPage from "./components/SettingsPage";
 
 type Tab = "dashboard" | "memories" | "settings";
 
@@ -37,11 +38,7 @@ function App() {
       <main className="flex flex-1">
         {activeTab === "memories" && <MemoriesPage />}
         {activeTab === "dashboard" && <DashboardPage />}
-        {activeTab === "settings" && (
-          <div className="flex flex-1 items-center justify-center text-ink-muted">
-            Settings — coming later
-          </div>
-        )}
+        {activeTab === "settings" && <SettingsPage />}
       </main>
     </div>
   );

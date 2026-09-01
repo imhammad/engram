@@ -117,3 +117,29 @@ def get_recent_activity(limit: int = 15) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+def delete_memory(memory_id: str) -> bool:
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    return deleted
+
+
+def delete_all_memories() -> int:
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM memories")
+    conn.commit()
+    count = cursor.rowcount
+    conn.close()
+    return count
+
+
+def delete_all_activity() -> int:
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM activity_log")
+    conn.commit()
+    count = cursor.rowcount
+    conn.close()
+    return count
