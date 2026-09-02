@@ -167,6 +167,25 @@ would require mocking model loading, which is a reasonable future
 addition but wasn't the highest-value use of this phase's effort.
 CI is intentionally fast (seconds, not minutes) as a result.
 
+## Phase 10 - Privacy Dashboard (complete)
+
+A Settings tab gives users direct control over their own captured
+data, consistent with the project's privacy-first premise:
+
+- **Export** - downloads a full JSON export of every memory and
+  activity log entry, timestamped.
+- **Delete everything** - permanently wipes all memories and
+  activity history from both SQLite and ChromaDB, behind a two-step
+  confirmation (no accidental single-click data loss).
+- **Per-memory delete** - individual memories can be removed
+  directly from the Memories list, not just via bulk wipe.
+
+This phase exists because a privacy-first pitch without real user
+control over captured data would be a contradiction, collecting
+data locally instead of in the cloud isn't privacy-respecting on
+its own if the user can't see or remove what's been collected.
+
+
 **Known limitations (tracked for future refinement):**
 - Semantic distance is sensitive to phrasing style, a question
   about a topic scores measurably further from a statement about
