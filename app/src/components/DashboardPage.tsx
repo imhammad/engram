@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { api } from "../lib/api";
 
 type Stats = {
   total_memories: number;
@@ -12,8 +13,6 @@ type ActivityEntry = {
   started_at: string;
 };
 
-const API_BASE = "http://127.0.0.1:8000";
-
 const sourceLabels: Record<string, string> = {
   manual: "Typed notes",
   screen_ocr: "Screen captures",
@@ -25,8 +24,8 @@ export default function DashboardPage() {
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/stats`).then((r) => r.json()).then(setStats);
-    fetch(`${API_BASE}/activity`).then((r) => r.json()).then(setActivity);
+    api<Stats>("/stats").then(setStats);
+    api<ActivityEntry[]>("/activity").then(setActivity);
   }, []);
 
   const maxSourceCount = stats

@@ -1,4 +1,5 @@
 mod engine;
+mod exclusions;
 mod permissions;
 mod window_tracker;
 
@@ -66,6 +67,23 @@ fn hide_popup(app: AppHandle) {
     }
 }
 
+const TRAY_ID: &str = "engram-tray";
+
+/// While a capture runs, the menu bar item says so, so capture is never silent.
+pub fn set_capture_indicator(app: &AppHandle, capturing: bool) {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        if capturing {
+            let _ = tray.set_tooltip(Some("Engram is capturing a window"));
+            #[cfg(target_os = "macos")]
+            let _ = tray.set_title(Some("Capturing"));
+        } else {
+            let _ = tray.set_tooltip(Some("Engram"));
+            #[cfg(target_os = "macos")]
+            let _ = tray.set_title(None::<&str>);
+        }
+    }
+}
+
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -79,6 +97,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .manage(engine::EngineState::new())
+        .manage(exclusions::ExclusionState::new())
+        .manage(window_tracker::LastWindow::new())
         .invoke_handler(tauri::generate_handler![
             ping,
             set_capture_paused,
@@ -86,6 +106,9 @@ pub fn run() {
             show_popup,
             hide_popup,
             engine::engine_status,
+            engine::engine_connection,
+            exclusions::refresh_exclusions,
+            window_tracker::capture_previous_window,
             permissions::screen_recording_status,
             permissions::request_screen_recording,
             permissions::open_privacy_settings,
@@ -101,8 +124,9 @@ pub fn run() {
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-            TrayIconBuilder::new()
+            TrayIconBuilder::with_id(TRAY_ID)
                 .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("Engram")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main_window(app),

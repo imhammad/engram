@@ -23,3 +23,7 @@ the link in both.
 - [0002: Model memory like a brain](0002-model-memory-like-a-brain.md)
 - [0003: Where data and models live, and a network-zero runtime](0003-data-and-model-locations.md)
 - [0004: Sidecar packaging and lifecycle](0004-sidecar-packaging-and-lifecycle.md)
+- [0005: Engine authentication and transport](0005-engine-authentication-and-transport.md)
+- [0006: Capture exclusions, redaction and the quality gate](0006-exclusions-redaction-quality-gate.md)
+
+See also [the threat model](../threat-model.md).

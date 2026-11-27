@@ -36,6 +36,30 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS capture_log (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            app_name TEXT NOT NULL DEFAULT '',
+            window_title TEXT NOT NULL DEFAULT '',
+            trigger TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            reason TEXT,
+            memory_id TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS exclusion_rules (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL CHECK (kind IN ('app', 'title')),
+            pattern TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
 
     conn.commit()
     conn.close()
@@ -137,3 +161,99 @@ def delete_all_activity() -> int:
     count = cursor.rowcount
     conn.close()
     return count
+
+
+# --- capture ledger -------------------------------------------------------
+# Every capture attempt is recorded here, whether it was saved, dropped as
+# noise, skipped because the window is excluded, or failed. Window titles are
+# stored redacted (see redact.py); excluded windows store only a marker.
+
+def log_capture(
+    trigger: str,
+    outcome: str,
+    app_name: str = "",
+    window_title: str = "",
+    reason: str | None = None,
+    memory_id: str | None = None,
+) -> dict:
+    entry = {
+        "id": str(uuid.uuid4()),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "app_name": app_name,
+        "window_title": window_title,
+        "trigger": trigger,
+        "outcome": outcome,
+        "reason": reason,
+        "memory_id": memory_id,
+    }
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO capture_log (id, created_at, app_name, window_title, trigger, outcome, reason, memory_id) "
+        "VALUES (:id, :created_at, :app_name, :window_title, :trigger, :outcome, :reason, :memory_id)",
+        entry,
+    )
+    conn.commit()
+    conn.close()
+    return entry
+
+
+def get_capture_log(limit: int = 200) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM capture_log ORDER BY created_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def delete_capture_log_entry(entry_id: str) -> bool:
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM capture_log WHERE id = ?", (entry_id,))
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    return deleted
+
+
+def delete_all_capture_log() -> int:
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM capture_log")
+    conn.commit()
+    count = cursor.rowcount
+    conn.close()
+    return count
+
+
+# --- user exclusion rules -------------------------------------------------
+
+def add_exclusion_rule(kind: str, pattern: str) -> dict:
+    rule = {
+        "id": str(uuid.uuid4()),
+        "kind": kind,
+        "pattern": pattern,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO exclusion_rules (id, kind, pattern, created_at) VALUES (:id, :kind, :pattern, :created_at)",
+        rule,
+    )
+    conn.commit()
+    conn.close()
+    return rule
+
+
+def get_exclusion_rules() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM exclusion_rules ORDER BY created_at").fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def delete_exclusion_rule(rule_id: str) -> bool:
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM exclusion_rules WHERE id = ?", (rule_id,))
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    return deleted

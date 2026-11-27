@@ -1,8 +1,8 @@
+import fake_models
 from paths import embedder_path, get_data_dir
 
 import chromadb
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
 
 DATA_DIR = get_data_dir()
 
@@ -13,12 +13,17 @@ _client = chromadb.PersistentClient(
 )
 _collection = _client.get_or_create_collection(name="memories")
 
-print("Loading embedding model, this may take a moment...")
-_embedder = SentenceTransformer(str(embedder_path()), device="cpu")
-print("Embedding model loaded successfully.")
+if not fake_models.enabled():
+    from sentence_transformers import SentenceTransformer
+
+    print("Loading embedding model, this may take a moment...")
+    _embedder = SentenceTransformer(str(embedder_path()), device="cpu")
+    print("Embedding model loaded successfully.")
 
 
 def embed_text(text: str) -> list[float]:
+    if fake_models.enabled():
+        return fake_models.embed(text)
     return _embedder.encode(text).tolist()
 
 

@@ -4,5 +4,7 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Engram records audio only when you press Record. The recording is transcribed on this Mac and is never sent anywhere.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Engram asks Chrome-family browsers whether the front window is an incognito window, so it never captures private browsing.</string>
 </dict>
 </plist>

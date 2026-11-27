@@ -9,8 +9,8 @@ laptop — and helps you query your own working memory using local AI.
 ## Current status
 
 Engram now targets macOS on Apple Silicon. Under the new phased plan,
-Phase 0 (re-orientation and cleanup) and Phase 1 (run on macOS) are
-complete; Phase 2 (trust baseline) is next. See PROJECT_STATUS.md for
+Phase 0 (re-orientation and cleanup), Phase 1 (run on macOS) and Phase 2
+(trust baseline) are complete; Phase 3 (memory store) is next. See PROJECT_STATUS.md for
 details and docs/decisions/ for the architecture decision records.
 The phase sections below describe the original build.
 
@@ -216,6 +216,31 @@ and is worth remembering for any future additional windows.
 - No sound/animation on popup appearance, currently silent, which
   may be too subtle for some users to notice.
 
+## What leaves your Mac
+
+Nothing. The engine listens only on 127.0.0.1, on a random port, and
+answers only requests that carry a secret generated fresh at every launch,
+so web pages and other programs cannot read your memories through it. It
+makes no outbound connections while it runs: model downloads happen once,
+when you run `fetch_models.py` yourself, and are checked against pinned
+hashes.
+
+You can check this two ways:
+
+- The test suite (`ai-engine/tests/test_api.py`) runs saving, searching,
+  capture, export and deletion with every outbound socket and DNS lookup
+  made to fail. It runs in CI on every pull request.
+- `scripts/verify-network-zero.sh` starts the real engine, with the real
+  models, inside a macOS sandbox that denies all outbound network access
+  except loopback, then saves a memory and searches for it.
+
+Engram also never captures some windows at all (Terminal, password
+managers, System Settings, private browsing windows and anything you add in
+Settings), removes emails, phone numbers, card numbers and secrets from
+captured text before storing it, and lists every capture attempt on the
+Ledger page. See docs/threat-model.md for the full picture, including what
+is out of scope.
+
 ## Tech Stack
 
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS
@@ -308,19 +333,27 @@ quit.
 
 Run the engine from the venv, then start the app with
 `ENGRAM_DEV_ENGINE=1` so it connects to that engine instead of
-spawning the sidecar:
+spawning the sidecar. The engine requires a token, so pick one and use the
+same token and port in both terminals:
 
 ```bash
+export ENGRAM_TOKEN="$(openssl rand -hex 32)" ENGRAM_PORT=8765
+echo "$ENGRAM_TOKEN"   # copy this into the second terminal
 cd ai-engine
+ENGRAM_DEV_ORIGIN=http://localhost:1420 \
 ENGRAM_DATA_DIR="$HOME/Library/Application Support/dev.engram.app/data" \
 ENGRAM_MODEL_DIR="$HOME/Library/Application Support/dev.engram.app/models" \
 .venv/bin/python main.py
 ```
 
 ```bash
+export ENGRAM_TOKEN=<the same token> ENGRAM_PORT=8765
 cd app
 ENGRAM_DEV_ENGINE=1 npm run tauri dev
 ```
+
+For API work without the models, `ENGRAM_FAKE_MODELS=1` swaps in
+lightweight stand-ins (this is what the tests use).
 
 `ENGRAM_DATA_DIR`, `ENGRAM_MODEL_DIR` and `TESSERACT_CMD` can also be
 set for the app itself to override the default locations.
@@ -340,7 +373,18 @@ terminal app you launched it from.
 ```bash
 cd ai-engine && .venv/bin/python -m pytest tests/ -v
 cd app && npm run build
-cd app/src-tauri && cargo check
+cd app/src-tauri && cargo check && cargo test --lib
+scripts/verify-network-zero.sh
+```
+
+### Existing memories from before Phase 2
+
+Memories saved before the trust baseline were not redacted or checked
+for noise. To see what would change, run the dry run; add `--apply` to
+make the changes, which backs up the database and index first:
+
+```bash
+ai-engine/.venv/bin/python ai-engine/scripts/clean_existing_memories.py
 ```
 
 ## Philosophy
