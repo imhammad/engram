@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 ENGINE_MODULES = [
     "main", "db", "store", "search", "legacy_import", "vector_store",
-    "ocr_capture", "audio_capture", "paths", "fake_models",
+    "ocr_capture", "audio_capture", "paths", "fake_models", "exclusions",
 ]
 
 

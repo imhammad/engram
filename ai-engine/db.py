@@ -23,6 +23,9 @@ def _memory(row) -> dict:
         "source": row["source"],
         "created_at": row["created_at"],
         "app_name": row["app_name"],
+        "window_title": row["window_title"],
+        "url": row["url"],
+        "text_source": row["text_source"],
         "pinned": bool(row["pinned"]),
     }
 
@@ -39,6 +42,7 @@ def insert_trace(
     quality: float | None = None,
     created_at: str | None = None,
     trace_id: str | None = None,
+    text_source: str = "",
 ) -> tuple[dict, bool]:
     """Store a trace and its vector. Returns (memory, created).
 
@@ -55,9 +59,10 @@ def insert_trace(
     created = created_at or now_iso()
     with conn:
         cur = conn.execute(
-            "INSERT INTO traces (id, content, source, app_name, window_title, url, created_at, quality, content_hash) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (trace_id, content, source, app_name, window_title, url, created, quality, digest),
+            "INSERT INTO traces (id, content, source, app_name, window_title, url, created_at, quality, content_hash, text_source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (trace_id, content, source, app_name, window_title, url, created, quality, digest,
+             text_source or {"manual": "typed", "audio_transcription": "audio"}.get(source, "")),
         )
         conn.execute("INSERT INTO trace_vectors (rowid, embedding) VALUES (?, ?)", (cur.lastrowid, _vec(embedding)))
     row = conn.execute("SELECT * FROM traces WHERE id = ?", (trace_id,)).fetchone()
@@ -130,6 +135,31 @@ def nearest_traces(embedding: list[float], k: int, exclude_id: str | None = None
         (_vec(embedding), fetch),
     ).fetchall()
     return [{"id": r[0], "distance": r[1]} for r in rows if r[0] != exclude_id][:k]
+
+
+def _window_clause(url: str) -> str:
+    # A page is identified by its URL when there is one, otherwise by its title.
+    return "url = ?" if url else "window_title = ?"
+
+
+def last_capture_of_window(app_name: str, window_title: str, url: str) -> dict | None:
+    """The most recent captured trace from the same window (app plus URL or title)."""
+    row = connect().execute(
+        f"SELECT * FROM traces WHERE source = 'screen_ocr' AND app_name = ? AND {_window_clause(url)} "
+        "ORDER BY created_at DESC LIMIT 1",
+        (app_name, url or window_title),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def recent_captures_of_other_windows(app_name: str, window_title: str, url: str, limit: int = 5) -> list[str]:
+    """Text of the app's latest captures from other windows, for spotting UI chrome."""
+    rows = connect().execute(
+        f"SELECT content FROM traces WHERE source = 'screen_ocr' AND app_name = ? AND NOT ({_window_clause(url)}) "
+        "ORDER BY created_at DESC LIMIT ?",
+        (app_name, url or window_title, limit),
+    ).fetchall()
+    return [r[0] for r in rows]
 
 
 def get_stats() -> dict:
@@ -218,8 +248,12 @@ def time_per_app(since: str, until: str | None = None, limit: int = 8) -> list[d
         "WHERE COALESCE(ended_at, ?) > ? AND started_at < ?",
         (end, end, since, end),
     ).fetchall()
+    from exclusions import is_system_process
+
     totals: dict[str, float] = {}
     for r in rows:
+        if is_system_process(r["app_name"]):
+            continue
         start = max(r["started_at"], since)
         stop = min(r["ended_at"], end)
         totals[r["app_name"]] = totals.get(r["app_name"], 0.0) + _seconds_between(start, stop)
@@ -245,8 +279,12 @@ def log_capture(
     reason: str | None = None,
     memory_id: str | None = None,
     created_at: str | None = None,
+    text_source: str = "",
+    url: str = "",
 ) -> dict:
     entry = {
+        "text_source": text_source,
+        "url": url,
         "id": str(uuid.uuid4()),
         "created_at": created_at or now_iso(),
         "app_name": app_name,
@@ -259,8 +297,8 @@ def log_capture(
     conn = connect()
     with conn:
         conn.execute(
-            "INSERT INTO capture_log (id, created_at, app_name, window_title, trigger, outcome, reason, memory_id) "
-            "VALUES (:id, :created_at, :app_name, :window_title, :trigger, :outcome, :reason, :memory_id)",
+            "INSERT INTO capture_log (id, created_at, app_name, window_title, trigger, outcome, reason, memory_id, text_source, url) "
+            "VALUES (:id, :created_at, :app_name, :window_title, :trigger, :outcome, :reason, :memory_id, :text_source, :url)",
             entry,
         )
     return entry

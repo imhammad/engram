@@ -114,3 +114,19 @@ def assess_capture(raw_text: str) -> tuple[str, str | None]:
     all that is left. Returns (cleaned text, reason to drop or None).
     """
     return clean_ocr_text(raw_text), noise_reason(strip_menu_bar(raw_text))
+
+
+def accessibility_noise_reason(text: str) -> str | None:
+    """A lighter gate for text read through Accessibility.
+
+    That text is what the app really shows, not OCR guesses, so it is not
+    judged on its share of dictionary-like words (names, code and URLs are
+    fine). It still needs enough words and must not be mostly symbols.
+    """
+    words = len(text.split())
+    if words < MIN_WORDS:
+        return f"too few words ({words})"
+    sym = symbol_ratio(text)
+    if sym > MAX_SYMBOL_RATIO:
+        return f"mostly symbols ({sym:.0%})"
+    return None

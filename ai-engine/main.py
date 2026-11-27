@@ -28,15 +28,19 @@ from db import (
     delete_all_capture_log, delete_all_memories, delete_capture_log_entry,
     delete_exclusion_rule, delete_memory, get_all_memories, get_capture_log,
     get_exclusion_rules, get_memories_by_ids, get_recent_activity, get_stats,
-    insert_trace, log_capture, nearest_traces, record_switch, time_per_app,
+    insert_trace, last_capture_of_window, log_capture, nearest_traces,
+    recent_captures_of_other_windows, record_switch, time_per_app,
 )
 from exclusions import (
-    BUILTIN_APPS, EXCLUDED_TITLE_MARKER, PRIVATE_TITLE_PATTERNS, match_exclusion,
+    BUILTIN_APPS, EXCLUDED_TITLE_MARKER, PRIVATE_TITLE_PATTERNS, SYSTEM_PROCESSES,
+    is_system_process, match_exclusion,
 )
 from ocr_capture import capture_screen_text
 from redact import redact
 from search import hybrid_search
-from text_quality import assess_capture, is_meaningful, word_stats
+import text_change
+from cleanup import clean_text
+from text_quality import accessibility_noise_reason, assess_capture, is_meaningful, word_stats
 from vector_store import embed_text
 
 # --- access control -------------------------------------------------------
@@ -123,7 +127,17 @@ class ScreenCaptureRequest(BaseModel):
     region: CaptureRegion | None = None
     app_name: str = ""
     window_title: str = ""
-    trigger: str = "manual"  # "manual" or "auto"
+    url: str = ""
+    # Text the shell read through the Accessibility API, if any (ADR 0009).
+    text: str | None = None
+    # dwell: first capture after the dwell delay; recheck: periodic look at
+    # the same window, saved only if the content changed; manual: Capture now.
+    trigger: str = "manual"
+
+
+class CaptureSettings(BaseModel):
+    dwell_seconds: int
+    recapture_minutes: int
 
 
 class LedgerEntry(BaseModel):
@@ -177,6 +191,8 @@ def user_rules() -> list[dict]:
 @app.post("/activity")
 def record_activity(entry: ActivityEntry):
     """A window switch: closes the current session and opens a new one."""
+    if is_system_process(entry.app_name):
+        return {"ignored": True, "reason": "system dialog"}
     # The shell already skips excluded windows; this is the second check.
     excluded = bool(match_exclusion(entry.app_name, entry.window_title, user_rules()))
     title = EXCLUDED_TITLE_MARKER if excluded else redact(entry.window_title)
@@ -254,42 +270,78 @@ def search_memories(q: str, limit: int = 5, since: str | None = None, until: str
 
 # --- capture --------------------------------------------------------------
 
-def _save_capture(text: str, source: str, trigger: str, app_name: str, title: str) -> dict:
+def _save_capture(text: str, source: str, trigger: str, app_name: str, title: str,
+                  url: str = "", text_source: str = "") -> dict:
     embedding = embed_text(text)
     _, ratio = word_stats(text)
-    saved, created = insert_trace(text, embedding, source=source, app_name=app_name,
-                                  window_title=title, quality=round(ratio, 3))
+    saved, created = insert_trace(text, embedding, source=source, app_name=app_name, window_title=title,
+                                  url=url, quality=round(ratio, 3), text_source=text_source)
     if not created:
-        log_capture(trigger, "duplicate", app_name, title, "same text as an existing memory", memory_id=saved["id"])
+        log_capture(trigger, "duplicate", app_name, title, "same text as an existing memory",
+                    memory_id=saved["id"], text_source=text_source, url=url)
         return {"saved": False, "reason": "Already saved: the same text is in an existing memory.", "memory": saved}
-    log_capture(trigger, "saved", app_name, title, memory_id=saved["id"])
+    log_capture(trigger, "saved", app_name, title, memory_id=saved["id"], text_source=text_source, url=url)
     return {"saved": True, "memory": saved, "related_memory": find_related_memory(saved, embedding)}
+
+
+def extract_capture_text(request: ScreenCaptureRequest, other_windows: list[str]) -> tuple[str, str, str | None]:
+    """Pick the text for a capture: Accessibility text first, OCR as the fallback.
+
+    Returns (text, text_source, reason_dropped). Accessibility text is used
+    when, after clean-up, it passes the lighter gate; otherwise the window is
+    read with OCR and held to the strict gate.
+    """
+    if request.text:
+        ax_text = clean_text(request.text, other_windows)
+        if accessibility_noise_reason(ax_text) is None:
+            return ax_text, "accessibility", None
+    region_dict = request.region.model_dump() if request.region else None
+    raw = capture_screen_text(region_dict)
+    cleaned, noise = assess_capture(raw)
+    return clean_text(cleaned, other_windows), "ocr", noise
 
 
 @app.post("/capture/screen")
 def capture_screen(request: ScreenCaptureRequest = ScreenCaptureRequest()):
     app_name = request.app_name
     title = redact(request.window_title)
-    trigger = request.trigger if request.trigger in ("manual", "auto") else "manual"
+    url = redact(request.url)
+    trigger = {"auto": "dwell"}.get(request.trigger, request.trigger)
+    if trigger not in ("manual", "dwell", "recheck"):
+        trigger = "manual"
 
+    if is_system_process(app_name):
+        return {"saved": False, "reason": "Not captured: system dialog."}
     reason = match_exclusion(request.app_name, request.window_title, user_rules())
     if reason:
         log_capture(trigger, "excluded", app_name, EXCLUDED_TITLE_MARKER, reason)
         return {"saved": False, "reason": f"Not captured: {reason}."}
 
-    region_dict = request.region.model_dump() if request.region else None
+    others = recent_captures_of_other_windows(app_name, title, url)
     try:
-        raw_text = capture_screen_text(region_dict)
+        cleaned, text_source, noise = extract_capture_text(request, others)
     except Exception as exc:  # OCR or screen grab failure
-        log_capture(trigger, "failed", app_name, title, str(exc))
+        log_capture(trigger, "failed", app_name, title, str(exc), url=url)
         return {"saved": False, "reason": str(exc)}
 
-    cleaned, noise = assess_capture(raw_text)
     text = redact(cleaned)
+    previous = last_capture_of_window(app_name, title, url)
+    previous_text = previous["content"] if previous else None
+
+    if trigger == "recheck":
+        # Periodic look at the same window: store only if it changed. Unchanged
+        # rechecks are not written to the ledger, or it would fill every few minutes.
+        if noise or not text_change.changed(previous_text, text):
+            return {"saved": False, "unchanged": True, "reason": "No meaningful change."}
+        trigger = "changed"
     if noise:
-        log_capture(trigger, "dropped-noise", app_name, title, noise)
+        log_capture(trigger, "dropped-noise", app_name, title, noise, text_source=text_source, url=url)
         return {"saved": False, "reason": f"Nothing worth saving: {noise}."}
-    return _save_capture(text, "screen_ocr", trigger, app_name, title)
+    if text_change.near_duplicate(previous_text, text):
+        log_capture(trigger, "duplicate", app_name, title, "almost the same as the last capture of this window",
+                    memory_id=previous["id"], text_source=text_source, url=url)
+        return {"saved": False, "reason": "Already saved: nearly the same as the last capture.", "memory": previous}
+    return _save_capture(text, "screen_ocr", trigger, app_name, title, url, text_source)
 
 
 @app.post("/capture/audio")
@@ -335,6 +387,7 @@ def exclusions():
     return {
         "builtin_apps": BUILTIN_APPS,
         "private_title_patterns": PRIVATE_TITLE_PATTERNS,
+        "system_processes": SYSTEM_PROCESSES,
         "rules": user_rules(),
     }
 
@@ -350,6 +403,32 @@ def create_exclusion_rule(rule: ExclusionRuleCreate):
 @app.delete("/exclusions/rules/{rule_id}")
 def remove_exclusion_rule(rule_id: str):
     return {"deleted": delete_exclusion_rule(rule_id)}
+
+
+# --- capture settings -----------------------------------------------------
+# Applied live: the shell re-reads them every 30 seconds and right after
+# they change in Settings.
+
+DWELL_CHOICES = (15, 30, 60)
+RECAPTURE_CHOICES = (0, 1, 2, 5)  # minutes; 0 turns recapture off
+DEFAULT_CAPTURE_SETTINGS = {"dwell_seconds": 30, "recapture_minutes": 2}
+
+
+@app.get("/settings/capture")
+def get_capture_settings():
+    stored = store.get_setting("capture_settings")
+    return {**DEFAULT_CAPTURE_SETTINGS, **(json.loads(stored) if stored else {})}
+
+
+@app.put("/settings/capture")
+def put_capture_settings(settings: CaptureSettings):
+    if settings.dwell_seconds not in DWELL_CHOICES or settings.recapture_minutes not in RECAPTURE_CHOICES:
+        return JSONResponse(
+            {"detail": f"dwell_seconds must be one of {DWELL_CHOICES}, recapture_minutes one of {RECAPTURE_CHOICES}"},
+            status_code=422,
+        )
+    store.set_setting("capture_settings", json.dumps(settings.model_dump()))
+    return get_capture_settings()
 
 
 # --- data export ----------------------------------------------------------

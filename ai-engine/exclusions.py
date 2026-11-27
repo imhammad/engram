@@ -40,7 +40,32 @@ PRIVATE_TITLE_PATTERNS = [
     "inprivate",
 ]
 
+# macOS system processes that put up dialogs, the lock screen or the screen
+# saver. They are not "apps the user worked in": ignored entirely, neither
+# timed nor captured.
+SYSTEM_PROCESSES = [
+    "UserNotificationCenter",
+    "SecurityAgent",
+    "loginwindow",
+    "ScreenSaverEngine",
+    "CoreServicesUIAgent",
+    "coreautha",
+    "coreauthd",
+    "universalAccessAuthWarn",
+    "Dock",
+    "WindowManager",
+    "Control Center",
+    "Notification Center",
+    "NotificationCenter",
+    "Spotlight",
+    "AXVisualSupportAgent",
+]
+
 EXCLUDED_TITLE_MARKER = "[excluded]"
+
+
+def is_system_process(app_name: str) -> bool:
+    return (app_name or "").strip().lower() in {p.lower() for p in SYSTEM_PROCESSES}
 
 
 def match_exclusion(app_name: str, window_title: str, user_rules: list[dict]) -> str | None:
