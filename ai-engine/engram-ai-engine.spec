@@ -10,11 +10,14 @@ from PyInstaller.utils.hooks import collect_all
 datas = []
 binaries = []
 hiddenimports = []
-for package in ("llama_cpp", "chromadb", "sentence_transformers", "faster_whisper", "pytesseract"):
+for package in ("llama_cpp", "sqlcipher3", "sqlite_vec", "sentence_transformers", "faster_whisper", "pytesseract"):
     pkg_datas, pkg_binaries, pkg_hiddenimports = collect_all(package)
     datas += pkg_datas
     binaries += pkg_binaries
     hiddenimports += pkg_hiddenimports
+
+# Numbered schema migrations, read at startup from next to store.py.
+datas += [("migrations/*.sql", "migrations")]
 
 
 a = Analysis(
