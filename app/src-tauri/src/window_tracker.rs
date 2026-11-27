@@ -26,6 +26,29 @@ pub struct WindowSnapshot {
     pub y: i64,
     pub width: i64,
     pub height: i64,
+    #[serde(skip)]
+    pub process_id: u64,
+    #[serde(skip)]
+    pub process_path: String,
+}
+
+impl WindowSnapshot {
+    fn from_active(window: &active_win_pos_rs::ActiveWindow) -> Self {
+        Self {
+            app_name: window.app_name.clone(),
+            title: window.title.clone(),
+            x: window.position.x as i64,
+            y: window.position.y as i64,
+            width: window.position.width as i64,
+            height: window.position.height as i64,
+            process_id: window.process_id,
+            process_path: window.process_path.to_string_lossy().into_owned(),
+        }
+    }
+
+    fn same_bounds(&self, other: &Self) -> bool {
+        (self.x, self.y, self.width, self.height) == (other.x, other.y, other.width, other.height)
+    }
 }
 
 /// The most recent capturable window, used by the manual Capture Screen button
@@ -131,14 +154,7 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
             if excluded.is_none() && current_private {
                 excluded = Some("private browsing window".into());
             }
-            let snapshot = WindowSnapshot {
-                app_name: window.app_name.clone(),
-                title: window.title.clone(),
-                x: window.position.x as i64,
-                y: window.position.y as i64,
-                width: window.position.width as i64,
-                height: window.position.height as i64,
-            };
+            let snapshot = WindowSnapshot::from_active(&window);
             if excluded.is_none() {
                 *app.state::<LastWindow>().0.lock().unwrap() = Some(snapshot.clone());
             }
@@ -182,8 +198,56 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
     });
 }
 
+/// The .app bundle that contains an executable, e.g.
+/// /Applications/Google Chrome.app/Contents/MacOS/Google Chrome -> /Applications/Google Chrome.app
+pub fn app_bundle_for(process_path: &str) -> Option<String> {
+    std::path::Path::new(process_path)
+        .ancestors()
+        .find(|p| p.extension().is_some_and(|e| e == "app"))
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Bring an app to the front. `open -a` needs no extra permission.
+fn activate_app(window: &WindowSnapshot) {
+    #[cfg(target_os = "macos")]
+    {
+        let target = app_bundle_for(&window.process_path).unwrap_or_else(|| window.app_name.clone());
+        let _ = std::process::Command::new("open").arg("-a").arg(target).status();
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+}
+
+/// Wait until the target app is frontmost and its window has stopped moving
+/// (Stage Manager and Mission Control animate windows into place), then
+/// return the window as it is now. None if it did not come forward in time.
+async fn wait_until_front_and_settled(target_pid: u64) -> Option<WindowSnapshot> {
+    let deadline = Instant::now() + Duration::from_millis(2500);
+    let mut previous: Option<WindowSnapshot> = None;
+    while Instant::now() < deadline {
+        if let Ok(window) = get_active_window() {
+            if window.process_id == target_pid {
+                let current = WindowSnapshot::from_active(&window);
+                if previous.as_ref().is_some_and(|p| p.same_bounds(&current)) {
+                    return Some(current);
+                }
+                previous = Some(current);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(120)).await;
+    }
+    previous
+}
+
 /// The Capture Screen button: capture the last window the user had in front
-/// before switching to Engram, after re-checking it against the rules.
+/// before switching to Engram.
+///
+/// That window is not on screen while Engram is in front: with Stage Manager
+/// on it has been shrunk into the side strip, and without it Engram covers
+/// it. A screen grab of its old position therefore saw the desktop or
+/// Engram, and the capture was dropped as unreadable. So Engram hides
+/// itself, brings the target app forward, waits for its window to settle,
+/// re-reads where the window now is, captures that, and comes back.
 #[tauri::command]
 pub async fn capture_previous_window(app: AppHandle) -> Result<Value, String> {
     let snapshot = app
@@ -197,25 +261,77 @@ pub async fn capture_previous_window(app: AppHandle) -> Result<Value, String> {
     if let Some(reason) = exclusions::current(&app).and_then(|r| r.matches(&snapshot.app_name, &snapshot.title)) {
         return Ok(json!({ "saved": false, "reason": format!("Not captured: {reason}.") }));
     }
-    if check_private(&snapshot.app_name).await {
-        return Ok(json!({ "saved": false, "reason": "Not captured: private browsing window." }));
-    }
-    // The captured window is usually behind Engram, and a screen grab sees
-    // whatever is on top, so step out of the way for the moment of capture.
+
     let main = app.get_webview_window("main");
     let was_visible = main.as_ref().and_then(|w| w.is_visible().ok()).unwrap_or(false);
-    if was_visible {
-        if let Some(w) = &main {
-            let _ = w.hide();
-        }
-        tokio::time::sleep(Duration::from_millis(350)).await;
+    if let (true, Some(w)) = (was_visible, &main) {
+        let _ = w.hide();
     }
-    let result = capture_window(&app, &snapshot, "manual").await;
-    if was_visible {
-        if let Some(w) = &main {
-            let _ = w.show();
-            let _ = w.set_focus();
+    activate_app(&snapshot);
+    let fresh = wait_until_front_and_settled(snapshot.process_id).await;
+
+    let result = match fresh {
+        None => Ok(json!({
+            "saved": false,
+            "reason": format!("Could not bring {} to the front to capture it.", snapshot.app_name),
+        })),
+        Some(window) => {
+            // The front window may not be the one remembered (another window
+            // of the same app); check what is actually about to be captured.
+            let excluded = exclusions::current(&app).and_then(|r| r.matches(&window.app_name, &window.title));
+            if let Some(reason) = excluded {
+                Ok(json!({ "saved": false, "reason": format!("Not captured: {reason}.") }))
+            } else if check_private(&window.app_name).await {
+                Ok(json!({ "saved": false, "reason": "Not captured: private browsing window." }))
+            } else {
+                // A moment for the window's content to finish redrawing.
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                capture_window(&app, &window, "manual").await
+            }
         }
+    };
+
+    if let (true, Some(w)) = (was_visible, &main) {
+        let _ = w.show();
+        let _ = w.set_focus();
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snap(x: i64, y: i64, w: i64, h: i64) -> WindowSnapshot {
+        WindowSnapshot {
+            app_name: "Google Chrome".into(),
+            title: "t".into(),
+            x,
+            y,
+            width: w,
+            height: h,
+            process_id: 1,
+            process_path: String::new(),
+        }
+    }
+
+    #[test]
+    fn finds_the_app_bundle_of_an_executable() {
+        assert_eq!(
+            app_bundle_for("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome").as_deref(),
+            Some("/Applications/Google Chrome.app")
+        );
+        assert_eq!(
+            app_bundle_for("/Applications/Xcode.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator").as_deref(),
+            Some("/Applications/Xcode.app/Contents/Developer/Applications/Simulator.app")
+        );
+        assert_eq!(app_bundle_for("/usr/bin/python3"), None);
+    }
+
+    #[test]
+    fn bounds_compare_position_and_size() {
+        assert!(snap(200, 117, 1321, 849).same_bounds(&snap(200, 117, 1321, 849)));
+        // A Stage Manager thumbnail versus the window on stage.
+        assert!(!snap(16, 393, 125, 128).same_bounds(&snap(200, 117, 1321, 849)));
+    }
 }
