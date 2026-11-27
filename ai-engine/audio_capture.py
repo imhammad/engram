@@ -1,21 +1,25 @@
-import tempfile
 import os
+import tempfile
 
+import fake_models
 from paths import whisper_path
-
-import sounddevice as sd
-from scipy.io.wavfile import write as write_wav
-from faster_whisper import WhisperModel
 
 SAMPLE_RATE = 16000
 RECORD_SECONDS = 8
 
-print("Loading local speech-to-text model, this may take a moment...")
-_whisper_model = WhisperModel(str(whisper_path()), device="cpu", compute_type="int8")
-print("Speech-to-text model loaded successfully.")
+if not fake_models.enabled():
+    import sounddevice as sd
+    from faster_whisper import WhisperModel
+    from scipy.io.wavfile import write as write_wav
+
+    print("Loading local speech-to-text model, this may take a moment...")
+    _whisper_model = WhisperModel(str(whisper_path()), device="cpu", compute_type="int8")
+    print("Speech-to-text model loaded successfully.")
 
 
 def record_and_transcribe() -> str:
+    if fake_models.enabled():
+        return fake_models.transcribe()
     print(f"Recording for {RECORD_SECONDS} seconds...")
     recording = sd.rec(
         int(RECORD_SECONDS * SAMPLE_RATE),
