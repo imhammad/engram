@@ -75,8 +75,9 @@ in llama.cpp's Metal teardown when the duplicate could not bind the port.
 Stopping uses SIGTERM before SIGKILL, because the onefile binary is a
 bootloader with the real engine as its child: SIGTERM is forwarded and the
 whole tree exits in under a second, while SIGKILL on the bootloader would
-orphan the engine. If the app itself crashes, the engine can still be left
-running; handling that is future work.
+orphan the engine. If the app itself crashes or is killed, the engine notices
+within about two seconds through `ENGRAM_PARENT_PID` and shuts itself down
+(added in Phase 2, see ADR 0005).
 
 If startup time becomes a problem, the onedir-plus-launcher approach above
 is the next step, and this record should be superseded when that happens.
