@@ -9,7 +9,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-pub const ENGINE_URL: &str = "http://127.0.0.1:8000";
+/// Header carrying the per-launch token; the engine rejects requests without it.
+pub const TOKEN_HEADER: &str = "X-Engram-Token";
 
 /// The onefile sidecar unpacks itself and loads three models before it
 /// answers: about 30 seconds normally on an M-series Mac, and over 80 seconds
@@ -24,9 +25,19 @@ pub struct EngineStatus {
     pub detail: Option<String>,
 }
 
+/// Where the engine listens and the secret it expects, fresh for every launch.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineConnection {
+    pub base_url: String,
+    pub token: String,
+}
+
 pub struct EngineState {
     child: Mutex<Option<CommandChild>>,
     status: Mutex<EngineStatus>,
+    connection: Mutex<Option<EngineConnection>>,
+    client: reqwest::Client,
 }
 
 impl EngineState {
@@ -34,8 +45,62 @@ impl EngineState {
         Self {
             child: Mutex::new(None),
             status: Mutex::new(EngineStatus { state: "starting", detail: None }),
+            connection: Mutex::new(None),
+            client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(60))
+                .build()
+                .expect("failed to build HTTP client"),
         }
     }
+}
+
+/// The frontend asks for this once and sends the token on every request.
+#[tauri::command]
+pub fn engine_connection(state: tauri::State<EngineState>) -> Result<EngineConnection, String> {
+    state
+        .connection
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "the engine connection is not set up".to_string())
+}
+
+/// Build an authenticated request to the engine, if it has been configured.
+pub fn request(app: &AppHandle, method: reqwest::Method, path: &str) -> Option<reqwest::RequestBuilder> {
+    let state = app.state::<EngineState>();
+    let conn = state.connection.lock().unwrap().clone()?;
+    Some(
+        state
+            .client
+            .request(method, format!("{}{}", conn.base_url, path))
+            .header(TOKEN_HEADER, conn.token),
+    )
+}
+
+/// 256 random bits from the operating system, hex encoded.
+fn generate_token() -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|e| format!("could not generate a token: {e}"))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Ask the OS for a free loopback port. There is a small window between
+/// releasing it here and the engine binding it; a clash shows up as the
+/// engine exiting, which is reported like any other start failure.
+fn pick_free_port() -> Result<u16, String> {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|e| format!("could not find a free port: {e}"))?;
+    listener
+        .local_addr()
+        .map(|addr| addr.port())
+        .map_err(|e| format!("could not read the free port: {e}"))
+}
+
+fn set_connection(app: &AppHandle, port: u16, token: String) {
+    *app.state::<EngineState>().connection.lock().unwrap() = Some(EngineConnection {
+        base_url: format!("http://127.0.0.1:{port}"),
+        token,
+    });
 }
 
 #[tauri::command]
@@ -71,9 +136,21 @@ fn resolve_dir(app: &AppHandle, env_var: &str, sub: &str) -> Result<PathBuf, Str
 pub fn start(app: &AppHandle) {
     let dev_engine = std::env::var("ENGRAM_DEV_ENGINE").map(|v| v == "1").unwrap_or(false);
 
-    if dev_engine {
-        println!("[engine] ENGRAM_DEV_ENGINE=1: not spawning the sidecar, expecting a running engine at {ENGINE_URL}");
-    } else if let Err(err) = spawn_sidecar(app) {
+    let result = if dev_engine {
+        // The developer started the engine by hand with these two variables.
+        match (std::env::var("ENGRAM_TOKEN"), std::env::var("ENGRAM_PORT")) {
+            (Ok(token), port) if token.len() >= 32 => {
+                let port = port.ok().and_then(|p| p.parse().ok()).unwrap_or(8000);
+                println!("[engine] ENGRAM_DEV_ENGINE=1: using the engine already running on port {port}");
+                set_connection(app, port, token);
+                Ok(())
+            }
+            _ => Err("ENGRAM_DEV_ENGINE=1 needs ENGRAM_TOKEN (32+ characters) and ENGRAM_PORT, the same values the engine was started with".to_string()),
+        }
+    } else {
+        spawn_sidecar(app)
+    };
+    if let Err(err) = result {
         eprintln!("[engine] {err}");
         set_status(app, "failed", Some(err));
         return;
@@ -91,16 +168,29 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
     println!("[engine] data dir:  {}", data_dir.display());
     println!("[engine] model dir: {}", model_dir.display());
 
-    let command = app
+    let token = generate_token()?;
+    let port = pick_free_port()?;
+    println!("[engine] port:      {port}");
+
+    let mut command = app
         .shell()
         .sidecar("engram-ai-engine")
         .map_err(|e| format!("could not find the engine sidecar: {e}"))?
         .env("ENGRAM_DATA_DIR", &data_dir)
-        .env("ENGRAM_MODEL_DIR", &model_dir);
+        .env("ENGRAM_MODEL_DIR", &model_dir)
+        .env("ENGRAM_TOKEN", &token)
+        .env("ENGRAM_PORT", port.to_string())
+        // Lets the engine notice if the app dies without stopping it.
+        .env("ENGRAM_PARENT_PID", std::process::id().to_string());
+    if cfg!(debug_assertions) {
+        // `tauri dev` serves the UI from Vite, so allow that origin too.
+        command = command.env("ENGRAM_DEV_ORIGIN", "http://localhost:1420");
+    }
     let (mut rx, child) = command
         .spawn()
         .map_err(|e| format!("could not start the engine sidecar: {e}"))?;
     *app.state::<EngineState>().child.lock().unwrap() = Some(child);
+    set_connection(app, port, token);
 
     // Forward the engine's output to our log, and notice if it dies early.
     let app = app.clone();
@@ -125,17 +215,21 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
 }
 
 async fn wait_until_ready(app: AppHandle) {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-        .expect("failed to build HTTP client");
     let started = Instant::now();
 
     while started.elapsed() < READY_TIMEOUT {
         if app.state::<EngineState>().status.lock().unwrap().state == "failed" {
             return;
         }
-        if let Ok(resp) = client.get(format!("{ENGINE_URL}/health")).send().await {
+        let Some(req) = request(&app, reqwest::Method::GET, "/health") else {
+            return;
+        };
+        if let Ok(resp) = req.timeout(Duration::from_secs(2)).send().await {
+            if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+                // Something else is listening on our port and does not know the token.
+                set_status(&app, "failed", Some("another program answered on the engine's port".into()));
+                return;
+            }
             if resp.status().is_success() {
                 println!("[engine] ready after {:.1}s", started.elapsed().as_secs_f32());
                 set_status(&app, "ready", None);

@@ -15,13 +15,13 @@
         height: 100vh;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
+        justify-content: flex-start;
         border: 1px solid #e5e2dc;
         border-left: 3px solid #0f6b5c;
       }
       .header {
         display: flex;
-        justify-content: space-between;
+        justify-content: flex-start;
         align-items: center;
       }
       .close-btn {
@@ -33,7 +33,19 @@
         padding: 0 4px;
       }
       .close-btn:hover { color: #22201c; }
-      p { margin: 8px 0 0 0; font-size: 14px; line-height: 1.4; }
+      /* Long messages wrap and stop after two lines with an ellipsis,
+         rather than running off the bottom of the fixed-size window. */
+      p {
+        margin: 6px 0 0 0;
+        font-size: 13px;
+        line-height: 1.4;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+      }
     </style>
 
   </head>
@@ -48,7 +60,9 @@
         const { listen } = window.__TAURI__.event;
 
         listen("popup-message", (event) => {
-            document.getElementById("message").textContent = event.payload;
+            const el = document.getElementById("message");
+            el.textContent = event.payload;
+            el.title = event.payload; // full text on hover
         });
 
         document.getElementById("close-btn").addEventListener("click", () => {

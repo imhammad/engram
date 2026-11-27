@@ -5,8 +5,9 @@ import "./App.css";
 import MemoriesPage from "./components/MemoriesPage";
 import DashboardPage from "./components/DashboardPage";
 import SettingsPage from "./components/SettingsPage";
+import LedgerPage from "./components/LedgerPage";
 
-type Tab = "dashboard" | "memories" | "settings";
+type Tab = "dashboard" | "memories" | "ledger" | "settings";
 
 type EngineStatus = {
   state: "starting" | "ready" | "failed";
@@ -91,6 +92,7 @@ function App() {
         <nav className="flex flex-col gap-1">
           {navItem("dashboard", "Dashboard")}
           {navItem("memories", "Memories")}
+          {navItem("ledger", "Ledger")}
           {navItem("settings", "Settings")}
         </nav>
       </aside>
@@ -102,6 +104,7 @@ function App() {
           <>
             {activeTab === "memories" && <MemoriesPage />}
             {activeTab === "dashboard" && <DashboardPage />}
+            {activeTab === "ledger" && <LedgerPage />}
             {activeTab === "settings" && <SettingsPage />}
           </>
         )}

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { api } from "../lib/api";
+import ExclusionsSection from "./ExclusionsSection";
 
-const API_BASE = "http://127.0.0.1:8000";
 
 type PermissionState = "granted" | "denied" | "unsupported";
 
@@ -91,8 +92,7 @@ export default function SettingsPage() {
   async function exportData() {
     setExporting(true);
     try {
-      const res = await fetch(`${API_BASE}/export`);
-      const data = await res.json();
+      const data = await api("/export");
       const blob = new Blob([JSON.stringify(data, null, 2)], {
         type: "application/json",
       });
@@ -112,10 +112,14 @@ export default function SettingsPage() {
   async function deleteEverything() {
     setDeleting(true);
     try {
-      const memRes = await fetch(`${API_BASE}/memories`, { method: "DELETE" });
-      const memData = await memRes.json();
-      await fetch(`${API_BASE}/activity`, { method: "DELETE" });
-      setMessage(`Deleted ${memData.deleted_count} memories and all activity history.`);
+      const memData = await api<{ deleted_count: number }>("/memories", {
+        method: "DELETE",
+      });
+      await api("/activity", { method: "DELETE" });
+      await api("/ledger", { method: "DELETE" });
+      setMessage(
+        `Deleted ${memData.deleted_count} memories, all activity history and the capture ledger.`,
+      );
       setConfirmDelete(false);
     } finally {
       setDeleting(false);
@@ -126,6 +130,8 @@ export default function SettingsPage() {
   return (
     <div className="flex h-full w-full flex-col gap-6 overflow-y-auto p-8">
       <PermissionsSection />
+
+      <ExclusionsSection />
 
       <div>
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-muted">
@@ -163,7 +169,8 @@ export default function SettingsPage() {
                 Delete all data
               </p>
               <p className="text-xs text-ink-muted">
-                Permanently removes every memory and activity record.
+                Permanently removes every memory, activity record and
+                ledger entry.
                 This cannot be undone.
               </p>
             </div>

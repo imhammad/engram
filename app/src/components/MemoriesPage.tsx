@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { api } from "../lib/api";
 
 type Memory = {
   id: string;
@@ -7,8 +8,6 @@ type Memory = {
   source: string;
   created_at: string;
 };
-
-const API_BASE = "http://127.0.0.1:8000";
 
 export default function MemoriesPage() {
   const [newMemory, setNewMemory] = useState("");
@@ -24,9 +23,7 @@ export default function MemoriesPage() {
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
 
   async function loadMemories() {
-    const res = await fetch(`${API_BASE}/memories`);
-    const data = await res.json();
-    setMemories(data);
+    setMemories(await api<Memory[]>("/memories"));
   }
 
   useEffect(() => {
@@ -37,12 +34,10 @@ async function saveMemory() {
   if (!newMemory.trim()) return;
   setLoading(true);
   try {
-    const res = await fetch(`${API_BASE}/memories`, {
+    const data = await api<{ related_memory: Memory | null }>("/memories", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: newMemory }),
+      body: { content: newMemory },
     });
-    const data = await res.json();
     setNewMemory("");
     if (data.related_memory) {
       setConnectionMessage(
@@ -66,24 +61,26 @@ async function saveMemory() {
   setCapturing(true);
   setCaptureMessage(null);
   try {
-    const res = await fetch(`${API_BASE}/capture/screen`, { method: "POST" });
-    const data = await res.json();
+    // Captures the window you were using before switching to Engram.
+    const data = await invoke<{ saved: boolean; reason?: string }>(
+      "capture_previous_window",
+    );
     if (data.saved) {
-      setCaptureMessage("Captured and saved!");
+      setCaptureMessage("Captured and saved.");
       await loadMemories();
     } else {
       setCaptureMessage(data.reason || "Nothing readable was captured.");
     }
   } catch (err) {
-    setCaptureMessage("Error: could not reach AI engine.");
+    setCaptureMessage(typeof err === "string" ? err : "Could not capture the window.");
   } finally {
     setCapturing(false);
-    setTimeout(() => setCaptureMessage(null), 3000);
+    setTimeout(() => setCaptureMessage(null), 5000);
   }
 }
 
 async function deleteMemory(id: string) {
-  await fetch(`${API_BASE}/memories/${id}`, { method: "DELETE" });
+  await api(`/memories/${id}`, { method: "DELETE" });
   await loadMemories();
 }
 
@@ -91,10 +88,11 @@ async function captureAudio() {
   setRecording(true);
   setAudioMessage("Listening... speak now (8 seconds)");
   try {
-    const res = await fetch(`${API_BASE}/capture/audio`, { method: "POST" });
-    const data = await res.json();
+    const data = await api<{ saved: boolean; reason?: string }>("/capture/audio", {
+      method: "POST",
+    });
     if (data.saved) {
-      setAudioMessage("Transcribed and saved!");
+      setAudioMessage("Transcribed and saved.");
       await loadMemories();
     } else {
       setAudioMessage(data.reason || "No speech detected.");
@@ -114,11 +112,9 @@ async function captureAudio() {
     }
     setLoading(true);
     try {
-      const res = await fetch(
-        `${API_BASE}/search?q=${encodeURIComponent(searchQuery)}`
+      setSearchResults(
+        await api<Memory[]>(`/search?q=${encodeURIComponent(searchQuery)}`),
       );
-      const data = await res.json();
-      setSearchResults(data);
     } finally {
       setLoading(false);
     }
