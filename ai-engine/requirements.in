@@ -1,0 +1,17 @@
+# Top-level runtime dependencies for the Engram AI engine.
+# requirements.txt is the pinned lock generated from this file on macOS (Apple Silicon).
+#
+# llama-cpp-python must be built with Metal so inference runs on the GPU:
+#   CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python
+fastapi
+uvicorn
+pydantic
+llama-cpp-python
+chromadb
+sentence-transformers
+faster-whisper
+sounddevice
+scipy
+mss
+pytesseract
+pillow
