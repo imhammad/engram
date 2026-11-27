@@ -161,3 +161,9 @@ ai-engine/*.spec
 app/src-tauri/binaries/
 
 ai-engine/data/
+
+# macOS
+.DS_Store
+
+# Python virtualenvs
+.venv/

@@ -11,11 +11,6 @@ use tauri::tray::TrayIconBuilder;
 
 
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
-#[tauri::command]
 fn ping() -> String {
     "pong from rust".into()
 }
@@ -65,7 +60,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, ping, set_capture_paused, get_capture_paused, show_popup, hide_popup])
+        .invoke_handler(tauri::generate_handler![ping, set_capture_paused, get_capture_paused, show_popup, hide_popup])
         .setup(|app| {
             let model_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ai-engine/models");
             let data_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ai-engine/data");

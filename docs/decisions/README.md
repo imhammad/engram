@@ -1,0 +1,23 @@
+# Architecture Decision Records
+
+This folder holds the Architecture Decision Records (ADRs) for Engram. Each
+record captures one significant decision: what we were facing, what we chose,
+and what follows from that choice. They exist so that anyone reading the code
+later, including us, can see why it looks the way it does.
+
+Records are numbered in the order they were written and are never renumbered.
+Each one has three sections:
+
+- **Context**: the situation and the forces at play when the decision was made.
+- **Decision**: what we decided to do.
+- **Consequences**: what becomes easier, what becomes harder, and what we now
+  have to live with.
+
+An accepted record is not edited to change its meaning. If a decision is
+reversed or refined, write a new record that supersedes the old one and note
+the link in both.
+
+## Index
+
+- [0001: Record architecture decisions](0001-record-architecture-decisions.md)
+- [0002: Model memory like a brain](0002-model-memory-like-a-brain.md)

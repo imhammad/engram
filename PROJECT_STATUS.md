@@ -1,9 +1,15 @@
 # Engram — Project Status
 
-**Last updated:** [30/08/2026]
+**Last updated:** 2026-11-27
 
 ## Current state
-Phases 1-8 complete (see README.md for full phase-by-phase details).
+The project has moved to macOS and is following a new phased plan.
+Phase 0 (re-orientation and cleanup) is complete: app naming and
+identifiers, removal of template code and the popup's CDN import,
+a Tauri 2.x update, and the first Architecture Decision Records in
+docs/decisions/. Phase 1 (run on macOS) is next.
+
+Under the original plan, Phases 1-10 were completed (see README.md for full phase-by-phase details).
 Working local-first "second brain" app: native Tauri shell, local AI
 sidecar (TinyLlama + embeddings + Whisper + Tesseract), SQLite +
 ChromaDB RAG pipeline, manual + automatic (dwell-triggered) capture,
@@ -19,8 +25,8 @@ Branch per feature → PR → merge → delete branch → sync local main.
 Conventional commit prefixes: feat/fix/chore/docs.
 
 ## Next planned phase
-Phase 9, CI/CD & Testing (GitHub Actions + unit tests), OR
-[whatever you actually decide before switching chats]
+Phase 1 of the new plan: run on macOS (build the sidecar and app
+for Apple Silicon and get the full capture pipeline working).
 
 ## Known open items
 - OCR still picks up UI chrome within a scoped window (documented
