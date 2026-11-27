@@ -1,3 +1,4 @@
+pub mod ax;
 mod engine;
 mod exclusions;
 mod keys;
@@ -101,6 +102,7 @@ pub fn run() {
         .manage(engine::EngineState::new())
         .manage(exclusions::ExclusionState::new())
         .manage(window_tracker::LastWindow::new())
+        .manage(window_tracker::TimingState::new())
         .invoke_handler(tauri::generate_handler![
             ping,
             set_capture_paused,
@@ -111,7 +113,10 @@ pub fn run() {
             engine::engine_connection,
             exclusions::refresh_exclusions,
             window_tracker::capture_previous_window,
+            window_tracker::refresh_capture_settings,
             permissions::screen_recording_status,
+            ax::accessibility_status,
+            ax::request_accessibility,
             permissions::request_screen_recording,
             permissions::open_privacy_settings,
         ])

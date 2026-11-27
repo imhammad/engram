@@ -21,9 +21,17 @@ pub struct ExclusionList {
     pub builtin_apps: Vec<String>,
     pub private_title_patterns: Vec<String>,
     pub rules: Vec<Rule>,
+    /// macOS dialogs, lock screen and screen saver: ignored entirely.
+    #[serde(default)]
+    pub system_processes: Vec<String>,
 }
 
 impl ExclusionList {
+    pub fn is_system_process(&self, app_name: &str) -> bool {
+        let app = app_name.trim().to_lowercase();
+        self.system_processes.iter().any(|p| p.to_lowercase() == app)
+    }
+
     /// A short reason if the window is excluded, otherwise None.
     pub fn matches(&self, app_name: &str, title: &str) -> Option<String> {
         let app = app_name.trim().to_lowercase();
@@ -54,6 +62,10 @@ impl ExclusionList {
 }
 
 /// Chromium browsers whose AppleScript dictionary reports a window's mode.
+pub fn is_chromium(app_name: &str) -> bool {
+    CHROMIUM_BROWSERS.contains(&app_name)
+}
+
 const CHROMIUM_BROWSERS: &[&str] = &[
     "Google Chrome",
     "Google Chrome Beta",
@@ -167,6 +179,7 @@ mod tests {
                 Rule { kind: "title".into(), pattern: "Payroll".into() },
                 Rule { kind: "app".into(), pattern: "bank".into() },
             ],
+            system_processes: vec!["UserNotificationCenter".into(), "SecurityAgent".into()],
         }
     }
 
@@ -181,6 +194,13 @@ mod tests {
         assert!(list().matches("Google Chrome", "Bank - Google Chrome (Incognito)").is_some());
         assert!(list().matches("Firefox", "Mozilla Firefox Private Browsing").is_some());
         assert!(list().matches("Google Chrome", "GitHub - Google Chrome").is_none());
+    }
+
+    #[test]
+    fn system_dialog_processes_are_recognised() {
+        assert!(list().is_system_process("UserNotificationCenter"));
+        assert!(list().is_system_process("securityagent"));
+        assert!(!list().is_system_process("Google Chrome"));
     }
 
     #[test]

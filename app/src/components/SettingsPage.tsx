@@ -6,11 +6,89 @@ import ExclusionsSection from "./ExclusionsSection";
 
 type PermissionState = "granted" | "denied" | "unsupported";
 
+type CaptureTiming = { dwell_seconds: number; recapture_minutes: number };
+
+function CaptureTimingSection() {
+  const [timing, setTiming] = useState<CaptureTiming | null>(null);
+
+  useEffect(() => {
+    api<CaptureTiming>("/settings/capture").then(setTiming);
+  }, []);
+
+  async function update(change: Partial<CaptureTiming>) {
+    if (!timing) return;
+    const next = await api<CaptureTiming>("/settings/capture", {
+      method: "PUT",
+      body: { ...timing, ...change },
+    });
+    setTiming(next);
+    // Apply now rather than at the tracker's next 30-second refresh.
+    await invoke("refresh_capture_settings").catch(() => {});
+  }
+
+  const select =
+    "rounded-md border border-border bg-surface px-2 py-1 text-sm text-ink";
+
+  return (
+    <div>
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-muted">
+        Capture timing
+      </h2>
+      <div className="flex flex-col gap-3 rounded-md border border-border bg-surface p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-ink">First capture after</p>
+            <p className="text-xs text-ink-muted">
+              How long a window stays in front before Engram captures it.
+            </p>
+          </div>
+          <select
+            className={select}
+            value={timing?.dwell_seconds ?? 30}
+            onChange={(e) => update({ dwell_seconds: Number(e.target.value) })}
+          >
+            <option value={15}>15 seconds</option>
+            <option value={30}>30 seconds</option>
+            <option value={60}>1 minute</option>
+          </select>
+        </div>
+        <div className="border-t border-border" />
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-ink">Look again every</p>
+            <p className="text-xs text-ink-muted">
+              While you stay on one window, Engram checks it again and saves
+              only if the content changed, for example after you scroll.
+            </p>
+          </div>
+          <select
+            className={select}
+            value={timing?.recapture_minutes ?? 2}
+            onChange={(e) => update({ recapture_minutes: Number(e.target.value) })}
+          >
+            <option value={0}>Off</option>
+            <option value={1}>1 minute</option>
+            <option value={2}>2 minutes</option>
+            <option value={5}>5 minutes</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PermissionsSection() {
   const [screen, setScreen] = useState<PermissionState | null>(null);
+  const [axs, setAxs] = useState<PermissionState | null>(null);
 
   async function refresh() {
     setScreen(await invoke<PermissionState>("screen_recording_status"));
+    setAxs(await invoke<PermissionState>("accessibility_status"));
+  }
+
+  async function openAccessibility() {
+    await invoke("request_accessibility");
+    await invoke("open_privacy_settings", { pane: "accessibility" });
   }
 
   useEffect(() => {
@@ -53,6 +131,35 @@ function PermissionsSection() {
           </div>
           <button
             onClick={openScreenRecording}
+            className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-surface-muted"
+          >
+            Open Settings
+          </button>
+        </div>
+
+        <div className="border-t border-border" />
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-ink">
+              Accessibility{" "}
+              <span
+                className={`ml-2 text-xs font-normal ${
+                  axs === "granted" ? "text-accent" : "text-red-600"
+                }`}
+              >
+                {axs === "granted" ? "Allowed" : "Not allowed"}
+              </span>
+            </p>
+            <p className="text-xs text-ink-muted">
+              Lets Engram read the actual text of the window in front (a web
+              page, a document) and a page's address, instead of reading the
+              screen. It never reads password fields. Without it, Engram reads
+              the screen instead.
+            </p>
+          </div>
+          <button
+            onClick={openAccessibility}
             className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-surface-muted"
           >
             Open Settings
@@ -130,6 +237,8 @@ export default function SettingsPage() {
   return (
     <div className="flex h-full w-full flex-col gap-6 overflow-y-auto p-8">
       <PermissionsSection />
+
+      <CaptureTimingSection />
 
       <ExclusionsSection />
 

@@ -27,5 +27,7 @@ the link in both.
 - [0006: Capture exclusions, redaction and the quality gate](0006-exclusions-redaction-quality-gate.md)
 - [0007: One SQLite file with sqlite-vec and FTS5 instead of ChromaDB](0007-single-sqlite-store.md)
 - [0008: Encryption at rest and Keychain key handling](0008-encryption-at-rest.md)
+- [0009: Text source order: Accessibility first, Apple Vision OCR as the fallback](0009-text-source-order.md)
+- [0010: Change-aware recapture, and no LLM rewriting of captures](0010-change-aware-recapture-no-llm-rewriting.md)
 
 See also [the threat model](../threat-model.md).

@@ -14,8 +14,8 @@ phased plan.
   Metal-accelerated llama.cpp, data and models in Application Support
   with explicit, checksummed model provisioning and a network-zero
   runtime (ADR 0003), an Apple Silicon PyInstaller sidecar that the
-  app starts, waits for and stops cleanly (ADR 0004), Tesseract
-  lookup for Homebrew, native-resolution Retina capture, popup placed
+  app starts, waits for and stops cleanly (ADR 0004), Homebrew
+  Tesseract lookup (replaced by Apple Vision in Phase 4), native-resolution Retina capture, popup placed
   in the screen work area, a Permissions section for Screen Recording
   and the microphone, and a macOS CI job.
 - Phase 2 (trust baseline) is complete: the engine requires a
@@ -32,10 +32,18 @@ phased plan.
   reciprocal rank fusion and time/app filters; content-hash dedupe;
   activity sessions that end on switch, idle, sleep, lock and quit; a
   Today time-per-app panel; one-time import of the old store.
+- Phase 4 (smarter capture) is complete: window text read through the
+  macOS Accessibility API first (web content, URL, editor documents,
+  never secure fields), Apple Vision OCR as the fallback replacing
+  Tesseract (ADR 0009); change-aware recapture with dwell and interval
+  settings applied live, near-duplicates never stored, popups only for
+  connections, deterministic clean-up and no LLM rewriting after it was
+  measured inventing content (ADR 0010); system dialogs ignored; URL,
+  text source and trigger stored; "Capture now" made secondary.
 
 Under the original plan, Phases 1-10 were completed (see README.md for full phase-by-phase details).
 Working local-first "second brain" app: native Tauri shell, local AI
-sidecar (TinyLlama + embeddings + Whisper + Tesseract), SQLite +
+sidecar (TinyLlama + embeddings + Whisper + OCR), SQLite +
 ChromaDB RAG pipeline, manual + automatic (dwell-triggered) capture,
 system tray + popup notifications, semantic connection-surfacing,
 and a working Dashboard.
@@ -50,9 +58,7 @@ Branch per feature → PR → merge → delete branch → sync local main.
 Conventional commit prefixes: feat/fix/chore/docs.
 
 ## Next planned phase
-Phase 4 of the new plan: smarter capture (change-aware recapture while
-staying on one window, capture timing settings, Capture Screen made a
-secondary action).
+Phase 5 of the new plan: recall.
 
 ## Known open items
 - OCR still picks up UI chrome within a scoped window; the quality

@@ -6,7 +6,9 @@ type Entry = {
   created_at: string;
   app_name: string;
   window_title: string;
-  trigger: "manual" | "auto";
+  trigger: "manual" | "auto" | "dwell" | "changed";
+  text_source?: string;
+  url?: string;
   outcome: "saved" | "dropped-noise" | "duplicate" | "excluded" | "failed";
   reason: string | null;
   memory_id: string | null;
@@ -26,6 +28,18 @@ const outcomeColors: Record<Entry["outcome"], string> = {
   duplicate: "text-ink-muted",
   excluded: "text-ink-muted",
   failed: "text-red-600",
+};
+
+const triggerLabels: Record<string, string> = {
+  auto: "Automatic",
+  dwell: "Automatic",
+  changed: "Automatic, content changed",
+  manual: "Capture now",
+};
+
+const sourceLabels: Record<string, string> = {
+  accessibility: "Read from the app",
+  ocr: "Read from the screen",
 };
 
 export default function LedgerPage() {
@@ -108,7 +122,10 @@ export default function LedgerPage() {
                   </p>
                   <p className="mt-1 text-xs text-ink-muted">
                     {new Date(e.created_at).toLocaleString()} ·{" "}
-                    {e.trigger === "auto" ? "Automatic" : "Manual"} ·{" "}
+                    {triggerLabels[e.trigger] ?? e.trigger} ·{" "}
+                    {e.text_source && (
+                      <>{sourceLabels[e.text_source] ?? e.text_source} · </>
+                    )}
                     <span className={outcomeColors[e.outcome]}>
                       {outcomeLabels[e.outcome] ?? e.outcome}
                     </span>

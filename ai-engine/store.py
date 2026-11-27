@@ -156,6 +156,8 @@ def _split_sql(script: str) -> list[str]:
     """Split a migration into statements, keeping trigger bodies intact."""
     statements, current, depth = [], [], 0
     for line in script.splitlines():
+        # Drop trailing "-- comments" (migrations do not put "--" inside strings).
+        line = re.sub(r"\s--\s.*$", "", line)
         stripped = line.strip()
         if not stripped or stripped.startswith("--"):
             continue

@@ -182,7 +182,7 @@ def test_screen_capture_is_redacted_and_logged(engine, monkeypatch):
 
     entry = client.get("/ledger").json()[0]
     assert entry["outcome"] == "saved"
-    assert entry["trigger"] == "auto"
+    assert entry["trigger"] == "dwell"  # the old name "auto" is still accepted
     assert entry["window_title"] == "Inbox - [email]"
     assert entry["memory_id"] == resp["memory"]["id"]
 
@@ -306,7 +306,7 @@ def test_search_filters_through_the_api(engine):
 def test_storage_endpoint_reports_encryption(engine):
     _, client = engine
     info = client.get("/storage").json()
-    assert info["encrypted"] is True and info["schema_version"] == 1
+    assert info["encrypted"] is True and info["schema_version"] == 2
 
 
 def test_activity_stop_accepts_seconds_ago(engine):

@@ -1,5 +1,4 @@
 import os
-import stat
 import sys
 from pathlib import Path
 
@@ -12,14 +11,8 @@ import paths  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    for var in ("ENGRAM_DATA_DIR", "ENGRAM_MODEL_DIR", "TESSERACT_CMD"):
+    for var in ("ENGRAM_DATA_DIR", "ENGRAM_MODEL_DIR"):
         monkeypatch.delenv(var, raising=False)
-
-
-def make_executable(path: Path) -> Path:
-    path.write_text("#!/bin/sh\n")
-    path.chmod(path.stat().st_mode | stat.S_IXUSR)
-    return path
 
 
 # --- offline mode ---------------------------------------------------------
@@ -65,29 +58,3 @@ def test_missing_model_raises_with_fetch_instructions(tmp_path, monkeypatch):
     monkeypatch.setenv("ENGRAM_MODEL_DIR", str(tmp_path))
     with pytest.raises(paths.MissingModelError, match="fetch_models.py"):
         paths.embedder_path()
-
-
-# --- tesseract lookup -----------------------------------------------------
-
-def test_tesseract_env_override_wins(tmp_path, monkeypatch):
-    monkeypatch.setenv("TESSERACT_CMD", "/custom/tesseract")
-    monkeypatch.setattr(paths.shutil, "which", lambda _: "/on/path/tesseract")
-    assert paths.find_tesseract_cmd() == "/custom/tesseract"
-
-
-def test_tesseract_found_on_path(monkeypatch):
-    monkeypatch.setattr(paths.shutil, "which", lambda _: "/on/path/tesseract")
-    assert paths.find_tesseract_cmd() == "/on/path/tesseract"
-
-
-def test_tesseract_falls_back_to_homebrew_location(tmp_path, monkeypatch):
-    brew = make_executable(tmp_path / "tesseract")
-    monkeypatch.setattr(paths.shutil, "which", lambda _: None)
-    monkeypatch.setattr(paths, "HOMEBREW_TESSERACT_PATHS", (str(tmp_path / "missing"), str(brew)))
-    assert paths.find_tesseract_cmd() == str(brew)
-
-
-def test_tesseract_missing_returns_none(tmp_path, monkeypatch):
-    monkeypatch.setattr(paths.shutil, "which", lambda _: None)
-    monkeypatch.setattr(paths, "HOMEBREW_TESSERACT_PATHS", (str(tmp_path / "missing"),))
-    assert paths.find_tesseract_cmd() is None

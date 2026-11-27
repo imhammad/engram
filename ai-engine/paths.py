@@ -1,4 +1,4 @@
-"""Where the engine keeps its data and models, and how it finds Tesseract.
+"""Where the engine keeps its data and models.
 
 This module only uses the standard library so it can be imported (and tested)
 without loading any heavy dependencies. Importing it also switches the Hugging
@@ -7,7 +7,6 @@ sentence-transformers or faster-whisper.
 """
 
 import os
-import shutil
 from pathlib import Path
 
 # The engine never reaches the network at runtime. Models are provisioned once,
@@ -21,11 +20,6 @@ ENGINE_DIR = Path(__file__).resolve().parent
 LLM_FILENAME = "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
 EMBEDDER_DIRNAME = "all-MiniLM-L6-v2"
 WHISPER_DIRNAME = "faster-whisper-base.en"
-
-HOMEBREW_TESSERACT_PATHS = (
-    "/opt/homebrew/bin/tesseract",  # Apple Silicon
-    "/usr/local/bin/tesseract",  # Intel
-)
 
 
 class MissingModelError(RuntimeError):
@@ -69,22 +63,3 @@ def embedder_path() -> Path:
 
 def whisper_path() -> Path:
     return _require(get_model_dir() / WHISPER_DIRNAME, "Speech-to-text model")
-
-
-def find_tesseract_cmd() -> str | None:
-    """Locate the tesseract binary.
-
-    Order: the TESSERACT_CMD environment variable, then PATH, then the usual
-    Homebrew locations. The Homebrew fallback matters because a bundled macOS
-    app is launched with a minimal PATH that does not include /opt/homebrew/bin.
-    """
-    override = os.environ.get("TESSERACT_CMD")
-    if override:
-        return override
-    on_path = shutil.which("tesseract")
-    if on_path:
-        return on_path
-    for candidate in HOMEBREW_TESSERACT_PATHS:
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    return None

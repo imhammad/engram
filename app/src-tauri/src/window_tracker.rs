@@ -10,10 +10,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
-use crate::{engine, exclusions};
+use crate::{ax, engine, exclusions};
 
 const POLL_INTERVAL_SECS: u64 = 5;
-const DWELL_THRESHOLD_SECS: u64 = 30;
+/// Defaults until the engine's capture settings have been read.
+const DEFAULT_DWELL_SECS: u64 = 30;
+const DEFAULT_RECAPTURE_MINUTES: u64 = 2;
 const EXCLUSION_REFRESH_SECS: u64 = 30;
 const EXCLUDED_TITLE: &str = "[excluded]";
 /// No keyboard or mouse input for this long ends the current session.
@@ -74,16 +76,79 @@ async fn check_private(app_name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// How long to wait before the first capture of a window, and how often to
+/// look again while the user stays on it. Read from the engine (Settings).
+#[derive(Clone, Copy, serde::Deserialize)]
+pub struct CaptureTiming {
+    pub dwell_seconds: u64,
+    pub recapture_minutes: u64,
+}
+
+pub struct TimingState(pub Mutex<CaptureTiming>);
+
+impl TimingState {
+    pub fn new() -> Self {
+        Self(Mutex::new(CaptureTiming {
+            dwell_seconds: DEFAULT_DWELL_SECS,
+            recapture_minutes: DEFAULT_RECAPTURE_MINUTES,
+        }))
+    }
+}
+
+async fn refresh_timing(app: &AppHandle) -> bool {
+    let Some(req) = engine::request(app, reqwest::Method::GET, "/settings/capture") else {
+        return false;
+    };
+    let Ok(resp) = req.send().await else { return false };
+    match resp.json::<CaptureTiming>().await {
+        Ok(timing) => {
+            *app.state::<TimingState>().0.lock().unwrap() = timing;
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Called by the Settings page right after the timing changes.
+#[tauri::command]
+pub async fn refresh_capture_settings(app: AppHandle) -> Result<(), String> {
+    if refresh_timing(&app).await { Ok(()) } else { Err("could not load capture settings".into()) }
+}
+
+/// Read the window's text through Accessibility, off the async runtime.
+/// Only valid while the window is frontmost.
+async fn read_accessibility(window: &WindowSnapshot) -> Option<ax::AxText> {
+    let (pid, chromium) = (window.process_id, exclusions::is_chromium(&window.app_name));
+    let read = move || {
+        tauri::async_runtime::spawn_blocking(move || ax::read_front_window(pid, chromium))
+    };
+    let first = read().await.ok().flatten();
+    let words = |r: &Option<ax::AxText>| r.as_ref().map_or(0, |t| t.text.split_whitespace().count());
+    if words(&first) >= 20 {
+        return first;
+    }
+    // Chromium and Electron apps build their accessibility tree only once
+    // asked (the first read turns it on), so give them a moment and look again.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    let second = read().await.ok().flatten();
+    if words(&second) > words(&first) { second } else { first }
+}
+
 /// Capture one window through the engine, with a tray hint while it runs.
+/// Accessibility text goes along when there is any; the engine falls back
+/// to OCR of the region otherwise (ADR 0009).
 pub async fn capture_window(app: &AppHandle, window: &WindowSnapshot, trigger: &str) -> Result<Value, String> {
     let req = engine::request(app, reqwest::Method::POST, "/capture/screen")
         .ok_or("the engine is not running")?;
     crate::set_capture_indicator(app, true);
+    let ax = read_accessibility(window).await;
     let result = req
         .json(&json!({
             "region": { "x": window.x, "y": window.y, "width": window.width, "height": window.height },
             "app_name": window.app_name,
             "window_title": window.title,
+            "url": ax.as_ref().map(|a| a.url.as_str()).unwrap_or(""),
+            "text": ax.as_ref().map(|a| a.text.as_str()).filter(|t| !t.trim().is_empty()),
             "trigger": trigger,
         }))
         .send()
@@ -105,22 +170,19 @@ async fn stop_activity(app: &AppHandle, reason: &str, seconds_ago: f64) {
 async fn log_excluded(app: &AppHandle, app_name: &str, reason: &str) {
     if let Some(req) = engine::request(app, reqwest::Method::POST, "/ledger") {
         let _ = req
-            .json(&json!({ "app_name": app_name, "trigger": "auto", "outcome": "excluded", "reason": reason }))
+            .json(&json!({ "app_name": app_name, "trigger": "dwell", "outcome": "excluded", "reason": reason }))
             .send()
             .await;
     }
 }
 
-fn popup_message(body: &Value, window: &WindowSnapshot) -> String {
-    if let Some(related) = body["related_memory"].as_object() {
-        let content = related.get("content").and_then(|c| c.as_str()).unwrap_or("");
-        let snippet: String = content.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(140).collect();
-        format!("This connects to something you saved before: \"{snippet}\"")
-    } else if window.title.is_empty() {
-        format!("Captured content from {}", window.app_name)
-    } else {
-        format!("Captured content from \"{}\"", window.title)
-    }
+/// With automatic recapture, a popup for every save would be constant noise,
+/// so the popup only appears when a capture connects to an earlier memory.
+fn connection_message(body: &Value) -> Option<String> {
+    let related = body["related_memory"].as_object()?;
+    let content = related.get("content").and_then(|c| c.as_str()).unwrap_or("");
+    let snippet: String = content.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(140).collect();
+    Some(format!("This connects to something you saved before: \"{snippet}\""))
 }
 
 pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
@@ -131,6 +193,8 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
         let own_pid = std::process::id() as u64;
         let mut window_start = Instant::now();
         let mut handled_this_session = false;
+        // When the current window was last captured or re-checked.
+        let mut last_look: Option<Instant> = None;
         let mut last_refresh: Option<Instant> = None;
         let mut current_private = false;
         // Set while activity is stopped (idle, sleep, lock, pause); the next
@@ -177,6 +241,7 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                 last_key = (0, String::new());
             }
             if last_refresh.map_or(true, |t| t.elapsed().as_secs() >= EXCLUSION_REFRESH_SECS) {
+                refresh_timing(&app).await;
                 if exclusions::refresh(&app).await {
                     last_refresh = Some(Instant::now());
                 }
@@ -188,8 +253,9 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
             let Ok(window) = get_active_window() else {
                 continue;
             };
-            // Never track or capture Engram's own windows.
-            if window.process_id == own_pid {
+            // Never track or capture Engram's own windows, or system dialogs
+            // (notification and permission prompts, the lock screen).
+            if window.process_id == own_pid || rules.is_system_process(&window.app_name) {
                 continue;
             }
 
@@ -213,6 +279,7 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                 last_key = key;
                 window_start = Instant::now();
                 handled_this_session = false;
+                last_look = None;
                 let logged_title = if excluded.is_some() { EXCLUDED_TITLE } else { window.title.as_str() };
                 println!("[window-tracker] switched to {} {}", window.app_name, if excluded.is_some() { "(excluded)" } else { "" });
                 if let Some(req) = engine::request(&app, reqwest::Method::POST, "/activity") {
@@ -224,23 +291,37 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                 continue;
             }
 
-            if handled_this_session || window_start.elapsed().as_secs() < DWELL_THRESHOLD_SECS {
-                continue;
-            }
-            handled_this_session = true;
+            let timing = *app.state::<TimingState>().0.lock().unwrap();
+            let trigger = if !handled_this_session {
+                if window_start.elapsed().as_secs() < timing.dwell_seconds {
+                    continue;
+                }
+                handled_this_session = true;
+                if let Some(reason) = excluded {
+                    println!("[window-tracker] dwell on excluded window ({}), not capturing", window.app_name);
+                    log_excluded(&app, &window.app_name, &reason).await;
+                    continue;
+                }
+                "dwell"
+            } else {
+                // Still on the same window: look again on the recapture interval.
+                let due = timing.recapture_minutes > 0
+                    && last_look.is_some_and(|t| t.elapsed().as_secs() >= timing.recapture_minutes * 60);
+                if excluded.is_some() || !due {
+                    continue;
+                }
+                "recheck"
+            };
+            last_look = Some(Instant::now());
 
-            if let Some(reason) = excluded {
-                println!("[window-tracker] dwell on excluded window ({}), not capturing", window.app_name);
-                log_excluded(&app, &window.app_name, &reason).await;
-                continue;
-            }
-
-            println!("[window-tracker] dwell threshold reached on {}, capturing", window.app_name);
+            println!("[window-tracker] {trigger} capture of {}", window.app_name);
             let app_handle = app.clone();
             tauri::async_runtime::spawn(async move {
-                if let Ok(body) = capture_window(&app_handle, &snapshot, "auto").await {
+                if let Ok(body) = capture_window(&app_handle, &snapshot, trigger).await {
                     if body["saved"].as_bool() == Some(true) {
-                        crate::present_popup(&app_handle, &popup_message(&body, &snapshot));
+                        if let Some(message) = connection_message(&body) {
+                            crate::present_popup(&app_handle, &message);
+                        }
                     }
                 }
             });
