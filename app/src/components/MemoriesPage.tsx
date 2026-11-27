@@ -170,18 +170,24 @@ async function captureAudio() {
           </button>
         </div>
       </div>
-      <div className="flex gap-3">
+      <p className="mb-3 text-sm text-ink-muted">
+        Engram captures the window you are working in on its own, and again
+        when what you are looking at changes. You do not need to press
+        anything.
+      </p>
+      <div className="flex items-center gap-3">
         <button
           onClick={captureScreen}
           disabled={capturing}
-          className="rounded-md border border-border bg-canvas px-4 py-2 text-sm font-medium hover:bg-surface-muted disabled:opacity-50"
+          title="Capture the window you were using before switching to Engram"
+          className="rounded-md px-2 py-1 text-xs text-ink-muted underline-offset-2 hover:text-ink hover:underline disabled:opacity-50"
         >
-          {capturing ? "Capturing..." : "Capture Screen"}
+          {capturing ? "Capturing..." : "Capture now"}
         </button>
         <button
           onClick={captureAudio}
           disabled={recording}
-          className="rounded-md border border-border bg-canvas px-4 py-2 text-sm font-medium hover:bg-surface-muted disabled:opacity-50"
+          className="rounded-md px-2 py-1 text-xs text-ink-muted underline-offset-2 hover:text-ink hover:underline disabled:opacity-50"
         >
           {recording ? "Recording..." : "Record 8s"}
         </button>
