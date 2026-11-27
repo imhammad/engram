@@ -141,7 +141,7 @@ async function captureAudio() {
         />
         {connectionMessage && (
         <p className="mt-2 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-sm text-accent">
-          🔗 {connectionMessage}
+          {connectionMessage}
         </p>
       )}
         <button
@@ -180,14 +180,14 @@ async function captureAudio() {
           disabled={capturing}
           className="rounded-md border border-border bg-canvas px-4 py-2 text-sm font-medium hover:bg-surface-muted disabled:opacity-50"
         >
-          {capturing ? "Capturing..." : "📸 Capture Screen"}
+          {capturing ? "Capturing..." : "Capture Screen"}
         </button>
         <button
           onClick={captureAudio}
           disabled={recording}
           className="rounded-md border border-border bg-canvas px-4 py-2 text-sm font-medium hover:bg-surface-muted disabled:opacity-50"
         >
-          {recording ? "🎙️ Recording..." : "🎙️ Record 8s"}
+          {recording ? "Recording..." : "Record 8s"}
         </button>
       </div>
       {(captureMessage || audioMessage) && (

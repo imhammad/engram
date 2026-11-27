@@ -26,7 +26,7 @@ function App() {
     <div className="flex h-screen w-screen bg-canvas font-sans text-ink">
       <aside className="w-64 border-r border-border bg-surface-muted p-4">
         <h1 className="mb-6 flex items-center gap-2 text-lg font-semibold">
-          🧠 Engram
+          Engram
         </h1>
         <nav className="flex flex-col gap-1">
           {navItem("dashboard", "Dashboard")}
