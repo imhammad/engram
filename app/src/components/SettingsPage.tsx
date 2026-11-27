@@ -1,6 +1,86 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 const API_BASE = "http://127.0.0.1:8000";
+
+type PermissionState = "granted" | "denied" | "unsupported";
+
+function PermissionsSection() {
+  const [screen, setScreen] = useState<PermissionState | null>(null);
+
+  async function refresh() {
+    setScreen(await invoke<PermissionState>("screen_recording_status"));
+  }
+
+  useEffect(() => {
+    refresh();
+    // Re-check when the user comes back from System Settings.
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, []);
+
+  async function openScreenRecording() {
+    // Adds Engram to the list (first time only), then opens the pane.
+    await invoke("request_screen_recording");
+    await invoke("open_privacy_settings", { pane: "screen-recording" });
+  }
+
+  if (screen === null || screen === "unsupported") return null;
+
+  return (
+    <div>
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-muted">
+        Permissions
+      </h2>
+      <div className="flex flex-col gap-3 rounded-md border border-border bg-surface p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-ink">
+              Screen Recording{" "}
+              <span
+                className={`ml-2 text-xs font-normal ${
+                  screen === "granted" ? "text-accent" : "text-red-600"
+                }`}
+              >
+                {screen === "granted" ? "Allowed" : "Not allowed"}
+              </span>
+            </p>
+            <p className="text-xs text-ink-muted">
+              Needed to read window titles and capture on-screen text. macOS
+              applies a change after Engram restarts.
+            </p>
+          </div>
+          <button
+            onClick={openScreenRecording}
+            className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-surface-muted"
+          >
+            Open Settings
+          </button>
+        </div>
+
+        <div className="border-t border-border" />
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-ink">Microphone</p>
+            <p className="text-xs text-ink-muted">
+              macOS asks the first time you press Record. Change it here if
+              you declined.
+            </p>
+          </div>
+          <button
+            onClick={() =>
+              invoke("open_privacy_settings", { pane: "microphone" })
+            }
+            className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-surface-muted"
+          >
+            Open Settings
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const [exporting, setExporting] = useState(false);
@@ -44,14 +124,16 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="flex h-full w-full flex-col gap-6 p-8">
+    <div className="flex h-full w-full flex-col gap-6 overflow-y-auto p-8">
+      <PermissionsSection />
+
       <div>
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-muted">
           Your data
         </h2>
         <p className="mb-4 text-sm text-ink-muted">
-          Everything Engram captures — typed notes, screen captures,
-          audio transcriptions, and activity history — stays on this
+          Everything Engram captures, including typed notes, screen captures,
+          audio transcriptions, and activity history, stays on this
           device. Nothing is ever sent anywhere. You have full control
           to export or permanently delete it below.
         </p>

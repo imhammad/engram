@@ -3,31 +3,42 @@ use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::AppHandle;
+
+use crate::engine::{self, ENGINE_URL};
 
 const POLL_INTERVAL_SECS: u64 = 5;
 const DWELL_THRESHOLD_SECS: u64 = 30;
 
 pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
     tauri::async_runtime::spawn(async move {
-        let mut last_title = String::new();
+        // Keyed on process and title: without Screen Recording permission macOS
+        // reports empty titles, and app switches must still be noticed.
+        let mut last_key = (0u64, String::new());
+        let own_pid = std::process::id() as u64;
         let mut window_start = Instant::now();
         let mut captured_this_session = false;
         let client = reqwest::Client::new();
 
         loop {
-            if paused.load(Ordering::Relaxed) {
+            if paused.load(Ordering::Relaxed) || !engine::is_ready(&app) {
                 tokio::time::sleep(Duration::from_secs(POLL_INTERVAL_SECS)).await;
                 continue;
             }
 
             if let Ok(window) = get_active_window() {
-                if window.title != last_title {
+                // Never track or capture Engram's own windows.
+                if window.process_id == own_pid {
+                    tokio::time::sleep(Duration::from_secs(POLL_INTERVAL_SECS)).await;
+                    continue;
+                }
+                let key = (window.process_id, window.title.clone());
+                if key != last_key {
                     println!(
                         "[window-tracker] switched to: {} ({})",
                         window.title, window.app_name
                     );
-                    last_title = window.title.clone();
+                    last_key = key;
                     window_start = Instant::now();
                     captured_this_session = false;
 
@@ -36,7 +47,7 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                         "app_name": window.app_name,
                     });
                     let _ = client
-                        .post("http://127.0.0.1:8000/activity")
+                        .post(format!("{ENGINE_URL}/activity"))
                         .json(&payload)
                         .send()
                         .await;
@@ -49,10 +60,10 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                         );
                         captured_this_session = true;
 
-                        // --- UPDATED CAPTURE BLOCK START ---
                         let capture_client = client.clone();
                         let app_handle = app.clone();
                         let window_title = window.title.clone();
+                        let app_name = window.app_name.clone();
                         let region = json!({
                             "x": window.position.x as i64,
                             "y": window.position.y as i64,
@@ -62,7 +73,7 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
 
                         tauri::async_runtime::spawn(async move {
                             let result = capture_client
-                                .post("http://127.0.0.1:8000/capture/screen")
+                                .post(format!("{ENGINE_URL}/capture/screen"))
                                 .json(&json!({ "region": region }))
                                 .send()
                                 .await;
@@ -70,20 +81,19 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                             if let Ok(response) = result {
                                 if let Ok(body) = response.json::<serde_json::Value>().await {
                                     if body["saved"].as_bool() == Some(true) {
-                                        if let Some(popup) = app_handle.get_webview_window("popup") {
-                                            let message = if let Some(related) = body["related_memory"].as_object() {
-                                                let related_content = related
-                                                    .get("content")
-                                                    .and_then(|c| c.as_str())
-                                                    .unwrap_or("");
-                                                let snippet: String = related_content.chars().take(80).collect();
-                                                format!("This connects to something you saved before: \"{}...\"", snippet)
-                                            } else {
-                                                format!("Captured content from \"{}\"", window_title)
-                                            };
-                                            let _ = popup.emit("popup-message", message);
-                                            let _ = popup.show();
-                                        }
+                                        let message = if let Some(related) = body["related_memory"].as_object() {
+                                            let related_content = related
+                                                .get("content")
+                                                .and_then(|c| c.as_str())
+                                                .unwrap_or("");
+                                            let snippet: String = related_content.chars().take(80).collect();
+                                            format!("This connects to something you saved before: \"{}...\"", snippet)
+                                        } else if window_title.is_empty() {
+                                            format!("Captured content from {}", app_name)
+                                        } else {
+                                            format!("Captured content from \"{}\"", window_title)
+                                        };
+                                        crate::present_popup(&app_handle, &message);
                                     }
                                 }
                             }

@@ -66,6 +66,7 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "active-win-pos-rs",
+ "libc",
  "reqwest",
  "serde",
  "serde_json",
