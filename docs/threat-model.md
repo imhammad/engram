@@ -2,7 +2,7 @@
 
 This document describes what Engram stores, where it lives, who can reach it,
 what the macOS permissions it asks for allow, and what it does not try to
-defend against. It reflects the state after Phase 3 (memory store).
+defend against. It reflects the state after Phase 4 (smarter capture).
 
 ## What Engram stores
 
@@ -10,7 +10,7 @@ Everything is kept under `~/Library/Application Support/dev.engram.app`:
 
 - `data/memory.db`, one SQLCipher-encrypted SQLite database (ADR 0007, 0008):
   - `traces`: typed notes (as written), screen captures and audio transcripts
-    (redacted, see below), with source, app, redacted window title and time,
+    (redacted, see below), with source, app, redacted window title, page URL, where the text came from (app or screen) and time,
     plus their keyword index and vectors.
   - `activity_sessions`: time spent per window, with the app name and the
     redacted window title, or `[excluded]` for excluded windows.
@@ -83,14 +83,25 @@ nothing sensitive is ever captured from an ordinary window.
   development the permission belongs to the terminal app that runs
   `npm run tauri dev`, which means anything else run from that terminal has
   it too.
+- **Accessibility.** Lets Engram read the user interface of other apps:
+  text, buttons, fields and window structure, and, in principle, act on
+  them. Engram only reads, and only the focused window of the frontmost app
+  at capture time: a web page's text and URL, an editor's document, or the
+  window's visible text. It never reads secure (password) fields, never
+  presses buttons or types, and stops after 6,000 elements, 20,000
+  characters or 600 ms. The text goes through the same exclusions, redaction
+  and clean-up as any capture. Without the permission Engram reads the
+  screen with OCR instead. During development the permission belongs to the
+  terminal app running `npm run tauri dev`, so anything run from that
+  terminal has it too.
 - **Microphone.** Lets Engram record audio. It records only while the user
   presses Record, for 8 seconds, and transcribes on the Mac.
 - **Automation (Google Chrome and similar).** Lets Engram send AppleScript
   commands to that browser. Engram only asks for the mode of the front window
   (normal or incognito), so that it can skip incognito windows. It sends no
   other commands.
-- Engram does not ask for Accessibility, Input Monitoring, Full Disk Access,
-  Contacts, Calendars or Location.
+- Engram does not ask for Input Monitoring, Full Disk Access, Contacts,
+  Calendars or Location.
 
 ## Out of scope
 

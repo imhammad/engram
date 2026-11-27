@@ -9,9 +9,8 @@ laptop — and helps you query your own working memory using local AI.
 ## Current status
 
 Engram now targets macOS on Apple Silicon. Under the new phased plan,
-Phase 0 (re-orientation and cleanup), Phase 1 (run on macOS), Phase 2
-(trust baseline) and Phase 3 (memory store) are complete; Phase 4
-(smarter capture) is next. See PROJECT_STATUS.md for
+Phases 0 to 4 (cleanup, run on macOS, trust baseline, memory store,
+smarter capture) are complete; Phase 5 (recall) is next. See PROJECT_STATUS.md for
 details and docs/decisions/ for the architecture decision records.
 The phase sections below describe the original build.
 
@@ -242,6 +241,33 @@ captured text before storing it, and lists every capture attempt on the
 Ledger page. See docs/threat-model.md for the full picture, including what
 is out of scope.
 
+## How capture works
+
+Capture is automatic. When a window has been in front for 30 seconds,
+Engram captures it, and while you stay on it Engram looks again every 2
+minutes and saves only if the content meaningfully changed, for example
+after you scroll to a new section (ADR 0010). Both times are adjustable in
+Settings. "Capture now" on the Memories page is there for the rare moment
+you want something saved immediately.
+
+Engram reads the window's actual text through the macOS Accessibility API
+when you allow it: a web page's content and address, a document in an
+editor. It never reads password fields. When Accessibility is off or an app
+exposes nothing, it falls back to reading the screen with Apple's Vision
+OCR (ADR 0009). Captured text is cleaned with plain rules, never rewritten
+by the language model, which was found to invent content. It is redacted
+and checked for noise. Near-duplicates are never stored. Notification and
+permission dialogs are ignored. The Ledger shows each capture's trigger and
+whether its text was read from the app or from the screen.
+
+Measured on an M5 MacBook Air (`scripts/compare_ocr.py` and
+`app/src-tauri/examples/ax_probe.rs`):
+
+| text source | time per capture | CPU |
+|---|---|---|
+| Apple Vision OCR (Retina window) | 92 to 107 ms | 67 to 92 ms |
+| Tesseract (replaced) | 158 to 258 ms | 156 to 256 ms |
+
 ## Storage
 
 Everything Engram keeps is in one encrypted file,
@@ -278,7 +304,7 @@ not encrypted.
 
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS
 - **Desktop shell:** Tauri v2 (Rust)
-- **AI engine:** Python, FastAPI, llama.cpp (Metal), sentence-transformers, faster-whisper, Tesseract
+- **AI engine:** Python, FastAPI, llama.cpp (Metal), sentence-transformers, faster-whisper, Apple Vision OCR
 - **Storage:** one SQLite file: SQLCipher (encryption), FTS5 (keywords), sqlite-vec (vectors)
 
 ## Architecture (high level)
@@ -307,7 +333,7 @@ not encrypted.
 
 - Apple Silicon Mac running a recent macOS
 - Xcode Command Line Tools: `xcode-select --install`
-- Homebrew packages: `brew install python@3.11 node cmake tesseract`
+- Homebrew packages: `brew install python@3.11 node cmake`
 - Rust via rustup (make sure `~/.cargo/bin` is on your PATH)
 
 ### Python engine
