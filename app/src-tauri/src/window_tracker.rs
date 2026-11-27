@@ -119,10 +119,19 @@ pub async fn refresh_capture_settings(app: AppHandle) -> Result<(), String> {
 /// Only valid while the window is frontmost.
 async fn read_accessibility(window: &WindowSnapshot) -> Option<ax::AxText> {
     let (pid, chromium) = (window.process_id, exclusions::is_chromium(&window.app_name));
-    tauri::async_runtime::spawn_blocking(move || ax::read_front_window(pid, chromium))
-        .await
-        .ok()
-        .flatten()
+    let read = move || {
+        tauri::async_runtime::spawn_blocking(move || ax::read_front_window(pid, chromium))
+    };
+    let first = read().await.ok().flatten();
+    let words = |r: &Option<ax::AxText>| r.as_ref().map_or(0, |t| t.text.split_whitespace().count());
+    if words(&first) >= 20 {
+        return first;
+    }
+    // Chromium and Electron apps build their accessibility tree only once
+    // asked (the first read turns it on), so give them a moment and look again.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    let second = read().await.ok().flatten();
+    if words(&second) > words(&first) { second } else { first }
 }
 
 /// Capture one window through the engine, with a tray hint while it runs.

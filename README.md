@@ -265,8 +265,16 @@ Measured on an M5 MacBook Air (`scripts/compare_ocr.py` and
 
 | text source | time per capture | CPU |
 |---|---|---|
+| Accessibility (Chrome page, VS Code window) | 35 to 136 ms | 8 to 27 ms |
 | Apple Vision OCR (Retina window) | 92 to 107 ms | 67 to 92 ms |
 | Tesseract (replaced) | 158 to 258 ms | 156 to 256 ms |
+
+Accessibility returns the whole page, not just the visible part, so on the
+web scrolling is not a change; recapture matters when a page's content
+itself changes. VS Code exposes its file tree and only the lines around the
+cursor unless its own screen reader mode is on
+(`"editor.accessibilitySupport": "on"`), so Engram keeps the file path and
+that partial text.
 
 ## Storage
 

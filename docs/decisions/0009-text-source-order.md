@@ -70,6 +70,22 @@ keeps OCR in the engine, next to the screen grab and the gate, instead of
 adding a Swift helper binary or Rust Vision bindings to the shell; it adds
 about 1 MB to the sidecar. Tesseract is removed from the dependencies.
 
+**Measured on the owner's Mac** (`app/src-tauri/examples/ax_probe.rs`):
+reading a GitHub profile in Chrome took 110 to 136 ms (21 to 27 ms CPU) for
+836 words. Reading a VS Code window took 35 to 61 ms (8 to 11 ms CPU). That's
+a fraction of Vision's 67 to 92 ms CPU. In the live test, a Wikipedia
+article came back whole (2,851 words with its URL), and the LinkedIn profile
+that the OCR gate had dropped was saved.
+
+Two behaviours found in that test. First, Chromium and Electron apps build
+their accessibility tree only after the first request, so the very first read
+can be empty; the shell now waits 700 ms and reads again when the first read
+returns fewer than 20 words. Second, Electron apps such as VS Code are web
+areas too: their internal page address (`vscode-file://`) is ignored in
+favour of the window's document path, and only `http(s)` addresses are kept
+as page URLs. VS Code exposes its file tree and the lines around the cursor,
+not the whole editor, unless its screen reader mode is on.
+
 ## Consequences
 
 Captures are the text people actually read, with URLs, and far less noise.

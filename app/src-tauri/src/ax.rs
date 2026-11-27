@@ -23,6 +23,15 @@ pub const MAX_NODES: usize = 6000;
 pub const MAX_CHARS: usize = 20_000;
 pub const MAX_DEPTH: usize = 40;
 pub const TIME_BUDGET_MS: u128 = 600;
+/// A focused text area shorter than this is a search box or a single line,
+/// not a document.
+pub const MIN_EDITOR_WORDS: usize = 20;
+
+/// Only real web addresses are kept as a page URL; app-internal pages
+/// (vscode-file://, chrome://, file:// inside an app bundle) are not.
+pub fn is_web_url(url: &str) -> bool {
+    url.starts_with("https://") || url.starts_with("http://")
+}
 
 /// Password fields and anything marked secure are never read.
 pub fn is_secure(role: &str, subrole: &str) -> bool {
@@ -236,28 +245,33 @@ mod mac {
 
         let window = app.element("AXFocusedWindow")?;
         let mut walk = Walk { started: Instant::now(), nodes: 0, chars: 0, fragments: Vec::new() };
-        let mut url = window.url("AXDocument").unwrap_or_default();
+        let document = window.url("AXDocument").unwrap_or_default();
+        let mut url = document.clone();
 
-        // Browsers: the page lives in an AXWebArea; read only that.
+        // Editors first: if the focused element is a document-sized text area
+        // (VS Code's editor, TextEdit, Notes), that document is the content.
+        if let Some(focused) = app.element("AXFocusedUIElement") {
+            let role = focused.string("AXRole").unwrap_or_default();
+            let subrole = focused.string("AXSubrole").unwrap_or_default();
+            if role == "AXTextArea" && !is_secure(&role, &subrole) {
+                if let Some(value) = focused.string("AXValue") {
+                    if value.split_whitespace().count() >= MIN_EDITOR_WORDS {
+                        walk.fragments.extend(value.lines().map(str::to_string));
+                        let text = join_fragments(&walk.fragments);
+                        return Some(AxText { text, url, kind: "editor".into() });
+                    }
+                }
+            }
+        }
+
+        // Pages: the content lives in an AXWebArea. Electron apps are web
+        // areas too, but their internal page address is not worth keeping.
         let kind = if let Some(web) = find_role(&window, &["AXWebArea"], 400) {
-            if let Some(page) = web.url("AXURL") {
+            if let Some(page) = web.url("AXURL").filter(|u| is_web_url(u)) {
                 url = page;
             }
             collect(&web, 0, &mut walk);
             "web"
-        } else if let Some(focused) = app.element("AXFocusedUIElement") {
-            let role = focused.string("AXRole").unwrap_or_default();
-            let subrole = focused.string("AXSubrole").unwrap_or_default();
-            if role == "AXTextArea" && !is_secure(&role, &subrole) {
-                // An editor's document: its whole value.
-                if let Some(value) = focused.string("AXValue") {
-                    walk.fragments.extend(value.lines().map(str::to_string));
-                }
-                "editor"
-            } else {
-                collect(&window, 0, &mut walk);
-                "window"
-            }
         } else {
             collect(&window, 0, &mut walk);
             "window"
@@ -337,6 +351,13 @@ mod tests {
         assert_eq!(join_fragments(&frags), "Hello world\nNext");
         let long = vec!["x".repeat(MAX_CHARS - 5), "this line does not fit".to_string()];
         assert_eq!(join_fragments(&long).len(), MAX_CHARS - 5);
+    }
+
+    #[test]
+    fn only_web_addresses_count_as_page_urls() {
+        assert!(is_web_url("https://github.com/imhammad"));
+        assert!(!is_web_url("vscode-file://vscode-app/Applications/Visual%20Studio%20Code.app/x.html"));
+        assert!(!is_web_url("chrome://newtab/"));
     }
 
     #[test]
