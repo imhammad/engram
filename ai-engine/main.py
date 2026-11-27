@@ -35,6 +35,32 @@ MODEL_PATH = os.path.join(MODEL_DIR, "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf")
 
 print(f"Loading local model from: {MODEL_PATH}")
 llm = Llama(model_path=MODEL_PATH, n_ctx=2048, verbose=False)
+def clean_captured_text(raw_text: str, source_type: str) -> str:
+    if source_type == "screen_ocr":
+        instruction = (
+            "The following text was extracted from a screenshot using OCR. "
+            "It likely contains UI clutter like menu items, browser tabs, "
+            "bookmarks, buttons, and timestamps mixed in with the real "
+            "content. Extract ONLY the meaningful content a person would "
+            "actually want to remember. If there is no meaningful content, "
+            "respond with exactly: NOTHING_MEANINGFUL"
+        )
+    else:  # audio_transcription
+        instruction = (
+            "The following text is a speech-to-text transcript that may "
+            "contain minor transcription errors. Lightly clean it up for "
+            "clarity without changing its meaning. If it's just noise or "
+            "silence with no real content, respond with exactly: "
+            "NOTHING_MEANINGFUL"
+        )
+
+    prompt = f"{instruction}\n\nRaw text:\n{raw_text}\n\nCleaned content:"
+    output = llm(prompt, max_tokens=200, stop=["</s>"])
+    cleaned = output["choices"][0]["text"].strip()
+
+    if "NOTHING_MEANINGFUL" in cleaned:
+        return ""
+    return cleaned
 print("Model loaded successfully.")
 
 
@@ -119,24 +145,49 @@ def create_memory(memory: MemoryCreate):
     related = find_related_memory(saved)
     return {"memory": saved, "related_memory": related}
 
-@app.post("/capture/screen")
-def capture_screen(request: ScreenCaptureRequest = ScreenCaptureRequest()):
-    region_dict = request.region.dict() if request.region else None
-    captured_text = capture_screen_text(region_dict)
-    if not captured_text:
-        return {"saved": False, "reason": "No readable text found on screen."}
-    saved = insert_memory(captured_text, source="screen_ocr")
-    add_to_vector_store(saved["id"], saved["content"])
-    related = find_related_memory(saved)
-    return {"saved": True, "memory": saved, "related_memory": related}
+def clean_captured_text(raw_text: str, source_type: str) -> str:
+    if source_type == "screen_ocr":
+        instruction = (
+            "Below is raw OCR text from a screenshot. It mixes real "
+            "content with UI clutter (menus, tabs, bookmarks, buttons, "
+            "timestamps). Copy out ONLY the exact real content, word for "
+            "word, removing the clutter. Do NOT summarize, describe, "
+            "comment on, or add anything not present in the raw text. "
+            "If there is no real content, output exactly: NOTHING_MEANINGFUL"
+        )
+    else:
+        instruction = (
+            "Below is a speech-to-text transcript with possible minor "
+            "errors. Correct obvious transcription errors only. Do NOT "
+            "add, remove, or invent any content beyond what is stated. "
+            "If it's just noise with no real speech, output exactly: "
+            "NOTHING_MEANINGFUL"
+        )
 
+    prompt = f"{instruction}\n\nRaw text:\n{raw_text}\n\nExact extracted content (no commentary):"
+    output = llm(
+        prompt,
+        max_tokens=200,
+        stop=["</s>", "\n\nRaw text:"],
+        temperature=0.1,  # low randomness — we want faithful extraction, not creative writing
+    )
+    cleaned = output["choices"][0]["text"].strip()
+
+    if "NOTHING_MEANINGFUL" in cleaned:
+        return ""
+    return cleaned
 
 @app.post("/capture/audio")
 def capture_audio():
-    transcript = record_and_transcribe()
-    if not transcript:
+    raw_transcript = record_and_transcribe()
+    if not raw_transcript:
         return {"saved": False, "reason": "No speech detected."}
-    saved = insert_memory(transcript, source="audio_transcription")
+
+    cleaned_text = clean_captured_text(raw_transcript, "audio_transcription")
+    if not cleaned_text:
+        return {"saved": False, "reason": "Nothing meaningful found in recording."}
+
+    saved = insert_memory(cleaned_text, source="audio_transcription")
     add_to_vector_store(saved["id"], saved["content"])
     related = find_related_memory(saved)
     return {"saved": True, "memory": saved, "related_memory": related}
