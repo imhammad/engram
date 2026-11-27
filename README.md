@@ -370,7 +370,11 @@ spawning the sidecar. The engine requires a token, so pick one and use the
 same token and port in both terminals:
 
 The engine also needs the database key on stdin; the app creates it in the
-Keychain the first time it runs, and `security` reads it back:
+Keychain the first time it runs, and `security` reads it back. Because
+`security` is not the app, macOS asks each time whether it may read the item:
+choose **Allow**, not Always Allow, so that only Engram itself keeps standing
+access to the key. The app never shells out to `security`; it reads the key
+through the Keychain API.
 
 ```bash
 export ENGRAM_TOKEN="$(openssl rand -hex 32)" ENGRAM_PORT=8765

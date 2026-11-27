@@ -34,8 +34,17 @@ see in `ps`, or in the environment, which other processes of the same user
 can read. It is never logged, by the shell or the engine, and tests check
 that it does not appear in the engine's output or environment.
 
-**Development.** Running the engine by hand needs the same key, piped in:
-`security find-generic-password -s dev.engram.app -a database-key -w | python main.py`.
+**Only the app reads it.** The shell reads and writes the item through the
+Keychain API (`security-framework`) from its own process, so the item's
+access list names the Engram binary and normal launches do not prompt. It
+never runs `/usr/bin/security`. Two developer tools do need the key and use
+`security find-generic-password`: running the engine by hand
+(`security find-generic-password -s dev.engram.app -a database-key -w | python main.py`)
+and `scripts/clean_existing_memories.py`. macOS asks before each of those
+reads; the answer should be Allow, not Always Allow, so `security` is not
+added to the access list. Unsigned development builds also prompt after each
+rebuild, because the Keychain identifies the app by its code signature; a
+signed release build would not.
 
 **Other platforms.** Only macOS has a key store wired up. On other platforms
 the shell refuses to start the encrypted engine; Windows Credential Manager

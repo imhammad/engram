@@ -12,8 +12,9 @@ to the data folder, then rewrites redacted memories (and their vectors) and
 deletes memories flagged as noise. Typed notes (source "manual") are never
 changed. Quit Engram before running --apply.
 
-The database key is read from the macOS Keychain (item dev.engram.app); macOS
-may ask you to allow access the first time.
+The database key is read from the macOS Keychain (item dev.engram.app) with
+the `security` tool. macOS will ask whether `security` may read it: choose
+Allow, not Always Allow, so only the Engram app keeps standing access.
 """
 
 import argparse
