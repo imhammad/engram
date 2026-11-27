@@ -1,16 +1,10 @@
 import sqlite3
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
-import os
 
-DATA_DIR = Path(
-    os.environ.get(
-        "ENGRAM_DATA_DIR",
-        str(Path(__file__).parent / "data"),
-    )
-)
-DATA_DIR.mkdir(exist_ok=True, parents=True)
+from paths import get_data_dir
+
+DATA_DIR = get_data_dir()
 DB_PATH = DATA_DIR / "engram.db"
 
 

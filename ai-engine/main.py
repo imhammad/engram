@@ -1,7 +1,16 @@
+import multiprocessing
+
+if __name__ == "__main__":
+    # In the PyInstaller build, libraries that start helper processes re-launch
+    # this executable. freeze_support() turns those launches into the helper
+    # instead of a second copy of the engine loading every model again.
+    multiprocessing.freeze_support()
+
+import paths  # first: puts the Hugging Face libraries in offline mode
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from llama_cpp import Llama
-import os
 from datetime import datetime, timezone
 from pydantic import BaseModel
 from ocr_capture import capture_screen_text
@@ -27,14 +36,11 @@ app.add_middleware(
 
 init_db()
 
-MODEL_DIR = os.environ.get(
-    "ENGRAM_MODEL_DIR",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"),
-)
-MODEL_PATH = os.path.join(MODEL_DIR, "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf")
+MODEL_PATH = str(paths.llm_path())
 
 print(f"Loading local model from: {MODEL_PATH}")
-llm = Llama(model_path=MODEL_PATH, n_ctx=2048, verbose=False)
+# n_gpu_layers=-1 offloads every layer to the GPU (Metal on Apple Silicon).
+llm = Llama(model_path=MODEL_PATH, n_ctx=2048, n_gpu_layers=-1, verbose=False)
 print("Model loaded successfully.")
 
 
@@ -121,8 +127,11 @@ def create_memory(memory: MemoryCreate):
 
 @app.post("/capture/screen")
 def capture_screen(request: ScreenCaptureRequest = ScreenCaptureRequest()):
-    region_dict = request.region.dict() if request.region else None
-    captured_text = capture_screen_text(region_dict)
+    region_dict = request.region.model_dump() if request.region else None
+    try:
+        captured_text = capture_screen_text(region_dict)
+    except RuntimeError as exc:
+        return {"saved": False, "reason": str(exc)}
     if not captured_text:
         return {"saved": False, "reason": "No readable text found on screen."}
     saved = insert_memory(captured_text, source="screen_ocr")
@@ -140,17 +149,6 @@ def capture_audio():
     add_to_vector_store(saved["id"], saved["content"])
     related = find_related_memory(saved)
     return {"saved": True, "memory": saved, "related_memory": related}
-
-
-@app.post("/capture/screen")
-def capture_screen(request: ScreenCaptureRequest = ScreenCaptureRequest()):
-    region_dict = request.region.dict() if request.region else None
-    captured_text = capture_screen_text(region_dict)
-    if not captured_text:
-        return {"saved": False, "reason": "No readable text found on screen."}
-    saved = insert_memory(captured_text, source="screen_ocr")
-    add_to_vector_store(saved["id"], saved["content"])
-    return {"saved": True, "memory": saved}
 
 
 @app.get("/memories")

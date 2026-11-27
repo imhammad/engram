@@ -21,7 +21,7 @@ jobs:
         working-directory: app
         run: npm run build
 
-  rust-check:
+  rust-check-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +32,21 @@ jobs:
           New-Item -ItemType Directory -Force -Path binaries
           New-Item -ItemType File -Force -Path binaries/engram-ai-engine-x86_64-pc-windows-msvc.exe
         shell: pwsh
+      - name: Check Rust compiles
+        working-directory: app/src-tauri
+        run: cargo check
+
+  rust-check-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Create placeholder sidecar binary
+        working-directory: app/src-tauri
+        run: |
+          mkdir -p binaries
+          touch binaries/engram-ai-engine-aarch64-apple-darwin
+          chmod +x binaries/engram-ai-engine-aarch64-apple-darwin
       - name: Check Rust compiles
         working-directory: app/src-tauri
         run: cargo check

@@ -21,3 +21,5 @@ the link in both.
 
 - [0001: Record architecture decisions](0001-record-architecture-decisions.md)
 - [0002: Model memory like a brain](0002-model-memory-like-a-brain.md)
+- [0003: Where data and models live, and a network-zero runtime](0003-data-and-model-locations.md)
+- [0004: Sidecar packaging and lifecycle](0004-sidecar-packaging-and-lifecycle.md)

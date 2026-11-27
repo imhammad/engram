@@ -1,6 +1,8 @@
 import tempfile
 import os
 
+from paths import whisper_path
+
 import sounddevice as sd
 from scipy.io.wavfile import write as write_wav
 from faster_whisper import WhisperModel
@@ -9,7 +11,7 @@ SAMPLE_RATE = 16000
 RECORD_SECONDS = 8
 
 print("Loading local speech-to-text model, this may take a moment...")
-_whisper_model = WhisperModel("base.en", device="cpu", compute_type="int8")
+_whisper_model = WhisperModel(str(whisper_path()), device="cpu", compute_type="int8")
 print("Speech-to-text model loaded successfully.")
 
 

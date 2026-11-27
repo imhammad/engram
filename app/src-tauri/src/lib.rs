@@ -1,14 +1,12 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-
-use tauri_plugin_shell::ShellExt;
+mod engine;
+mod permissions;
 mod window_tracker;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::Manager;
-use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-
+use tauri::{AppHandle, Emitter, Manager, RunEvent};
 
 #[tauri::command]
 fn ping() -> String {
@@ -29,52 +27,75 @@ fn get_capture_paused(state: tauri::State<CaptureState>) -> bool {
     state.paused.load(Ordering::Relaxed)
 }
 
-#[tauri::command]
-fn show_popup(app: tauri::AppHandle, message: String) {
-    if let Some(popup) = app.get_webview_window("popup") {
-        let _ = popup.emit("popup-message", message);
+/// Show the popup with a message in the bottom-right corner of the screen's
+/// work area, which on macOS excludes the menu bar and the Dock.
+pub fn present_popup(app: &AppHandle, message: &str) {
+    let Some(popup) = app.get_webview_window("popup") else {
+        return;
+    };
+    let _ = popup.emit("popup-message", message);
 
-        if let Ok(Some(monitor)) = popup.current_monitor() {
-            let screen_size = monitor.size();
-            let scale = monitor.scale_factor();
-            let popup_width = 340.0 * scale;
-            let popup_height = 100.0 * scale;
-            let margin = 20.0 * scale;
-            let x = screen_size.width as f64 - popup_width - margin;
-            let y = screen_size.height as f64 - popup_height - margin - (60.0 * scale);
-            let _ = popup.set_position(tauri::PhysicalPosition::new(x, y));
-        }
-        let _ = popup.show();
+    let monitor = popup
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| popup.primary_monitor().ok().flatten());
+    if let Some(monitor) = monitor {
+        let scale = monitor.scale_factor();
+        let area = monitor.work_area();
+        let size = popup
+            .outer_size()
+            .unwrap_or(tauri::PhysicalSize::new((340.0 * scale) as u32, (100.0 * scale) as u32));
+        let margin = (16.0 * scale) as i32;
+        let x = area.position.x + area.size.width as i32 - size.width as i32 - margin;
+        let y = area.position.y + area.size.height as i32 - size.height as i32 - margin;
+        let _ = popup.set_position(tauri::PhysicalPosition::new(x, y));
     }
+    let _ = popup.show();
 }
 
 #[tauri::command]
-fn hide_popup(app: tauri::AppHandle) {
+fn show_popup(app: AppHandle, message: String) {
+    present_popup(&app, &message);
+}
+
+#[tauri::command]
+fn hide_popup(app: AppHandle) {
     if let Some(popup) = app.get_webview_window("popup") {
         let _ = popup.hide();
     }
 }
 
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![ping, set_capture_paused, get_capture_paused, show_popup, hide_popup])
+        .manage(engine::EngineState::new())
+        .invoke_handler(tauri::generate_handler![
+            ping,
+            set_capture_paused,
+            get_capture_paused,
+            show_popup,
+            hide_popup,
+            engine::engine_status,
+            permissions::screen_recording_status,
+            permissions::request_screen_recording,
+            permissions::open_privacy_settings,
+        ])
         .setup(|app| {
-            let model_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ai-engine/models");
-            let data_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ai-engine/data");
             let paused = Arc::new(AtomicBool::new(false));
             app.manage(CaptureState { paused: paused.clone() });
-            window_tracker::start_tracking(app.handle().clone(), paused);
 
-            let sidecar = app
-                .shell()
-                .sidecar("engram-ai-engine")
-                .expect("failed to create sidecar command")
-                .env("ENGRAM_MODEL_DIR", model_dir)
-                .env("ENGRAM_DATA_DIR", data_dir);
-            let (mut _rx, _child) = sidecar.spawn().expect("failed to spawn ai engine sidecar");
+            engine::start(app.handle());
+            window_tracker::start_tracking(app.handle().clone(), paused);
 
             let show_item = MenuItem::with_id(app, "show", "Show Engram", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -84,32 +105,32 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                    "quit" => {
-                        app.exit(0);
-                    }
+                    "show" => show_main_window(app),
+                    "quit" => app.exit(0),
                     _ => {}
                 })
                 .build(app)?;
 
+            // Closing the main window hides it; Engram keeps running in the tray.
             if let Some(window) = app.get_webview_window("main") {
-            let window_clone = window.clone();
-            window.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window_clone.hide();
+                let window_clone = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window_clone.hide();
                     }
                 });
-             }
-             Ok(())
+            }
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
 
-            })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    app.run(|app, event| match event {
+        RunEvent::Exit => engine::stop(app),
+        // Clicking the Dock icon brings the hidden main window back.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => show_main_window(app),
+        _ => {}
+    });
 }
-

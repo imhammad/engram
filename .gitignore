@@ -158,6 +158,7 @@ ai-engine/models/
 ai-engine/build/
 ai-engine/dist/
 ai-engine/*.spec
+!ai-engine/engram-ai-engine.spec
 app/src-tauri/binaries/
 
 ai-engine/data/
