@@ -15,5 +15,5 @@ faster-whisper
 sounddevice
 scipy
 mss
-pytesseract
+pyobjc-framework-Vision
 pillow

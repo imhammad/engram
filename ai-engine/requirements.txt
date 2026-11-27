@@ -50,7 +50,11 @@ pydantic_core==2.50.5
 Pygments==2.21.0
 pyinstaller==6.22.3
 pyinstaller-hooks-contrib==2026.10
-pytesseract==0.3.13
+pyobjc-core==13.1
+pyobjc-framework-Cocoa==13.1
+pyobjc-framework-CoreML==13.1
+pyobjc-framework-Quartz==13.1
+pyobjc-framework-Vision==13.1
 pytest==9.2.0
 PyYAML==6.0.4
 regex==2026.11.25

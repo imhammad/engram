@@ -1,7 +1,6 @@
 import sys
 
 import fake_models
-from paths import find_tesseract_cmd
 
 # Points from the top of the main display covered by the menu bar, which
 # carries no content worth remembering. 38 covers notched MacBook displays.
@@ -9,14 +8,9 @@ MENU_BAR_HEIGHT = 38
 
 if not fake_models.enabled():
     import mss
-    import pytesseract
     from PIL import Image
 
-    _tesseract_cmd = find_tesseract_cmd()
-    if _tesseract_cmd:
-        pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd
-    else:
-        print("Tesseract not found. Install it with 'brew install tesseract' or set TESSERACT_CMD.")
+    import vision_ocr
 
     if sys.platform == "darwin":
         import mss.darwin
@@ -50,8 +44,6 @@ def capture_screen_text(region: dict | None = None) -> str:
     """
     if fake_models.enabled():
         return fake_models.ocr_text(region)
-    if not _tesseract_cmd:
-        raise RuntimeError("Tesseract is not installed. Run 'brew install tesseract'.")
 
     with _MSS() as sct:
         if region:
@@ -67,5 +59,5 @@ def capture_screen_text(region: dict | None = None) -> str:
         screenshot = sct.grab(monitor)
         img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
 
-    text = pytesseract.image_to_string(img)
-    return text.strip()
+    # Apple Vision replaced Tesseract in Phase 4 (ADR 0009).
+    return vision_ocr.recognize(img).strip()

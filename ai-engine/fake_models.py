@@ -1,7 +1,7 @@
 """Lightweight stand-ins for the models, for tests and CI.
 
 Set ENGRAM_FAKE_MODELS=1 and the engine uses these instead of llama.cpp,
-sentence-transformers, faster-whisper and Tesseract. Nothing heavy is
+sentence-transformers, faster-whisper and Apple Vision OCR. Nothing heavy is
 imported, so the whole HTTP API can be exercised with only FastAPI and
 Chroma installed.
 """

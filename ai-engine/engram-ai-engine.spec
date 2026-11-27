@@ -10,7 +10,7 @@ from PyInstaller.utils.hooks import collect_all
 datas = []
 binaries = []
 hiddenimports = []
-for package in ("llama_cpp", "sqlcipher3", "sqlite_vec", "sentence_transformers", "faster_whisper", "pytesseract"):
+for package in ("llama_cpp", "sqlcipher3", "sqlite_vec", "sentence_transformers", "faster_whisper", "Vision"):
     pkg_datas, pkg_binaries, pkg_hiddenimports = collect_all(package)
     datas += pkg_datas
     binaries += pkg_binaries
