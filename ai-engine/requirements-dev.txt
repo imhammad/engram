@@ -1,3 +1,4 @@
 # Development and packaging tools (not bundled into the engine).
 pytest
+httpx
 pyinstaller

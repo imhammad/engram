@@ -66,9 +66,11 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "active-win-pos-rs",
+ "core-foundation 0.10.1",
  "getrandom 0.3.4",
  "libc",
  "reqwest",
+ "security-framework",
  "serde",
  "serde_json",
  "tauri",

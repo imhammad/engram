@@ -2,30 +2,34 @@
 
 This document describes what Engram stores, where it lives, who can reach it,
 what the macOS permissions it asks for allow, and what it does not try to
-defend against. It reflects the state after Phase 2 (trust baseline).
+defend against. It reflects the state after Phase 3 (memory store).
 
 ## What Engram stores
 
 Everything is kept under `~/Library/Application Support/dev.engram.app`:
 
-- `data/engram.db` (SQLite):
-  - `memories`: typed notes (as written), screen captures and audio
-    transcripts (redacted, see below), with source and time.
-  - `activity_log`: app switches, with the app name and the redacted window
-    title, or `[excluded]` for excluded windows.
+- `data/memory.db`, one SQLCipher-encrypted SQLite database (ADR 0007, 0008):
+  - `traces`: typed notes (as written), screen captures and audio transcripts
+    (redacted, see below), with source, app, redacted window title and time,
+    plus their keyword index and vectors.
+  - `activity_sessions`: time spent per window, with the app name and the
+    redacted window title, or `[excluded]` for excluded windows.
   - `capture_log` (the Capture Ledger): each capture attempt with time, app,
     redacted title, trigger, outcome and reason.
-  - `exclusion_rules`: the user's own never-capture rules.
-- `data/chroma/`: the vector index, holding an embedding and a copy of each
-  memory's text.
+  - `exclusion_rules`, `settings`, and the empty `episodes` and `days`
+    tables for later phases.
 - `models/`: the three model files, installed once by `fetch_models.py`.
+- `backup-before-phase3-*/`: the pre-Phase-3 plain database and Chroma
+  folder, moved there during the one-time import. **These are not
+  encrypted** and should be deleted once the import has been checked.
 
 Screenshots and audio recordings are not stored. A screen grab exists only in
 memory while it is read by OCR; an audio clip is written to a temporary file
 for transcription and deleted immediately afterwards.
 
-The data is not encrypted at rest beyond what FileVault provides for the whole
-disk. Encrypting the database is planned for Phase 3.
+The database key is a random 256-bit value in the login Keychain (item
+`dev.engram.app`, account `database-key`). The app passes it to the engine
+over stdin; it is never in argv, the environment or a log.
 
 ## What is kept out
 
@@ -49,7 +53,8 @@ nothing sensitive is ever captured from an ordinary window.
 
 - **The network: no one.** The engine binds 127.0.0.1 only and makes no
   outbound connections at runtime. The Hugging Face libraries run in offline
-  mode and Chroma telemetry is off. The only code that downloads anything is
+  mode, and the store is SQLite, which has no telemetry. The only code that
+  downloads anything is
   `fetch_models.py`, which the user runs once. This is checked two ways: the
   test suite runs the whole API with outbound sockets and DNS blocked, and
   `scripts/verify-network-zero.sh` runs the real engine under a macOS sandbox
@@ -59,10 +64,13 @@ nothing sensitive is ever captured from an ordinary window.
   the token or make an authenticated request.
 - **Other local programs: only with the token.** The engine listens on a
   random port each launch and rejects requests without the 256-bit token.
-- **Anything running as the same macOS user: yes.** Such a program can read
-  the database files directly, or read the token from the engine's process
-  environment. Engram does not defend against malware already running as the
-  user.
+- **Anything running as the same macOS user: partly.** Such a program can
+  copy `memory.db` but not read it without the key. It could ask the
+  Keychain for the key (macOS may prompt), read the engine's token from its
+  environment, or read the engine's memory. Engram does not defend against
+  malware already running as the user.
+- **Someone with a copy of the file** (a backup drive, a synced folder, a
+  disk image): they get ciphertext only, unless they also have the Keychain.
 - **Other macOS users on the same Mac: no**, by the normal permissions on the
   home folder.
 
@@ -88,8 +96,10 @@ nothing sensitive is ever captured from an ordinary window.
 
 - Malware or another program running as the same user (see above).
 - Someone with physical access to an unlocked Mac.
-- Backups: Time Machine and other backup tools copy the data folder like any
-  other, under whatever protection the backup itself has.
+- Backups: Time Machine and other tools copy `memory.db` like any other file;
+  the copy stays encrypted, but restoring it on another Mac needs the
+  Keychain item too.
+- Losing the Keychain item: the database cannot be recovered without it.
 - Shoulder surfing and screen sharing: Engram's own window shows memories.
 - Supply-chain attacks on dependencies and models. Model files are pinned to
   revisions and SHA-256 hashes, which protects against a changed download but

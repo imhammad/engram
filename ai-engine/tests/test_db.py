@@ -9,15 +9,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 @pytest.fixture
-def db_module(tmp_path, monkeypatch):
-    """Give each test a fresh, isolated SQLite database."""
-    monkeypatch.setenv("ENGRAM_DATA_DIR", str(tmp_path))
-    # Force a clean import so db.py picks up the env var above
-    for mod_name in list(sys.modules):
-        if mod_name == "db":
-            del sys.modules[mod_name]
+def db_module(fresh_store):
+    """Each test gets a fresh, isolated encrypted store (see conftest.py)."""
     import db as db_module
-    db_module.init_db()
     return db_module
 
 
@@ -71,7 +65,7 @@ def test_get_memories_by_ids_handles_empty_list(db_module):
 
 
 def test_log_activity_persists_correctly(db_module):
-    result = db_module.log_activity("Some Window", "SomeApp")
+    result = db_module.record_switch("SomeApp", "Some Window")
     assert result["window_title"] == "Some Window"
     assert result["app_name"] == "SomeApp"
 
@@ -106,7 +100,7 @@ def test_delete_all_memories_removes_everything(db_module):
 
 
 def test_delete_all_activity_removes_everything(db_module):
-    db_module.log_activity("Window A", "AppA")
-    db_module.log_activity("Window B", "AppB")
+    db_module.record_switch("AppA", "Window A")
+    db_module.record_switch("AppB", "Window B")
     count = db_module.delete_all_activity()
     assert count == 2

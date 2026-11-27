@@ -7,7 +7,7 @@ type Entry = {
   app_name: string;
   window_title: string;
   trigger: "manual" | "auto";
-  outcome: "saved" | "dropped-noise" | "excluded" | "failed";
+  outcome: "saved" | "dropped-noise" | "duplicate" | "excluded" | "failed";
   reason: string | null;
   memory_id: string | null;
 };
@@ -15,6 +15,7 @@ type Entry = {
 const outcomeLabels: Record<Entry["outcome"], string> = {
   saved: "Saved",
   "dropped-noise": "Dropped, unreadable",
+  duplicate: "Already saved",
   excluded: "Not captured, excluded",
   failed: "Failed",
 };
@@ -22,6 +23,7 @@ const outcomeLabels: Record<Entry["outcome"], string> = {
 const outcomeColors: Record<Entry["outcome"], string> = {
   saved: "text-accent",
   "dropped-noise": "text-ink-muted",
+  duplicate: "text-ink-muted",
   excluded: "text-ink-muted",
   failed: "text-red-600",
 };

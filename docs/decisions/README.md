@@ -25,5 +25,7 @@ the link in both.
 - [0004: Sidecar packaging and lifecycle](0004-sidecar-packaging-and-lifecycle.md)
 - [0005: Engine authentication and transport](0005-engine-authentication-and-transport.md)
 - [0006: Capture exclusions, redaction and the quality gate](0006-exclusions-redaction-quality-gate.md)
+- [0007: One SQLite file with sqlite-vec and FTS5 instead of ChromaDB](0007-single-sqlite-store.md)
+- [0008: Encryption at rest and Keychain key handling](0008-encryption-at-rest.md)
 
 See also [the threat model](../threat-model.md).

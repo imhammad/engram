@@ -9,9 +9,10 @@ if __name__ == "__main__":
 import paths  # first: puts the Hugging Face libraries in offline mode
 
 import hmac
+import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,23 +21,23 @@ from pydantic import BaseModel
 
 import fake_models
 from audio_capture import record_and_transcribe
+import legacy_import
+import store
 from db import (
-    add_exclusion_rule, delete_all_activity, delete_all_capture_log,
-    delete_all_memories, delete_capture_log_entry, delete_exclusion_rule,
-    delete_memory, get_all_memories, get_capture_log, get_exclusion_rules,
-    get_memories_by_ids, get_recent_activity, get_stats, init_db,
-    insert_memory, log_activity, log_capture,
+    add_exclusion_rule, close_open_session, delete_all_activity,
+    delete_all_capture_log, delete_all_memories, delete_capture_log_entry,
+    delete_exclusion_rule, delete_memory, get_all_memories, get_capture_log,
+    get_exclusion_rules, get_memories_by_ids, get_recent_activity, get_stats,
+    insert_trace, log_capture, nearest_traces, record_switch, time_per_app,
 )
 from exclusions import (
     BUILTIN_APPS, EXCLUDED_TITLE_MARKER, PRIVATE_TITLE_PATTERNS, match_exclusion,
 )
 from ocr_capture import capture_screen_text
 from redact import redact
-from text_quality import assess_capture, is_meaningful
-from vector_store import (
-    add_to_vector_store, delete_all_from_vector_store,
-    delete_from_vector_store, query_vector_store,
-)
+from search import hybrid_search
+from text_quality import assess_capture, is_meaningful, word_stats
+from vector_store import embed_text
 
 # --- access control -------------------------------------------------------
 # The shell generates a fresh random token and port for every launch and
@@ -74,7 +75,9 @@ app.add_middleware(
     allow_headers=[TOKEN_HEADER, "Content-Type"],
 )
 
-init_db()
+# The database key arrives on stdin (ADR 0008). Read it before loading the
+# models so a missing key fails fast.
+store.configure(store.read_key_from_stdin())
 
 if fake_models.enabled():
     print("ENGRAM_FAKE_MODELS=1: using stand-in models")
@@ -89,12 +92,25 @@ else:
     print("Model loaded successfully.")
 
 
+# First start on the Phase 3 store: bring over the old plain database.
+legacy_import.import_legacy(paths.get_data_dir(), embed_text)
+
+
 class MemoryCreate(BaseModel):
     content: str
 
 class ActivityEntry(BaseModel):
     window_title: str
     app_name: str
+    at: str | None = None
+
+
+class ActivityStop(BaseModel):
+    reason: str  # idle | sleep | lock | pause | quit
+    ended_at: str | None = None
+    # The shell measures idle time and sleep gaps relative to now, which
+    # spares it formatting timestamps.
+    ended_seconds_ago: float | None = None
 
 class CaptureRegion(BaseModel):
     x: int
@@ -122,13 +138,14 @@ class ExclusionRuleCreate(BaseModel):
     pattern: str
 
 
-# all-MiniLM-L6-v2 embeddings are normalised and Chroma reports squared L2
-# distance, so distance = 2 - 2 * cosine similarity; 0.9 means cosine >= 0.55.
+# sqlite-vec reports cosine distance (1 - cosine similarity). The Phase 2
+# threshold of 0.9 squared L2 between normalised vectors is the same as
+# cosine similarity >= 0.55, which is cosine distance <= 0.45.
 # scripts/calibrate_connections.py on the fixture set: related pairs 0.22 to
 # 1.15, unrelated pairs 1.38 and up, so 0.9 links 5 of 6 related pairs and no
 # unrelated ones. The junk "connections" seen in practice were noisy captures
 # matching other noisy captures, which the quality gate now stops (ADR 0006).
-CONNECTION_DISTANCE_THRESHOLD = 0.9
+CONNECTION_DISTANCE_THRESHOLD = 0.45
 
 
 def passes_quality_gate(memory: dict) -> bool:
@@ -136,10 +153,10 @@ def passes_quality_gate(memory: dict) -> bool:
     return memory.get("source") == "manual" or is_meaningful(memory.get("content", ""))
 
 
-def find_related_memory(new_memory: dict) -> dict | None:
+def find_related_memory(new_memory: dict, embedding: list[float]) -> dict | None:
     if not passes_quality_gate(new_memory):
         return None
-    matches = query_vector_store(new_memory["content"], n_results=5, exclude_id=new_memory["id"])
+    matches = nearest_traces(embedding, 5, exclude_id=new_memory["id"])
     close = [m for m in matches if m["distance"] <= CONNECTION_DISTANCE_THRESHOLD]
     if not close:
         return None
@@ -159,15 +176,35 @@ def user_rules() -> list[dict]:
 
 @app.post("/activity")
 def record_activity(entry: ActivityEntry):
+    """A window switch: closes the current session and opens a new one."""
     # The shell already skips excluded windows; this is the second check.
-    if match_exclusion(entry.app_name, entry.window_title, user_rules()):
-        return {**log_activity(EXCLUDED_TITLE_MARKER, entry.app_name), "excluded": True}
-    return {**log_activity(redact(entry.window_title), entry.app_name), "excluded": False}
+    excluded = bool(match_exclusion(entry.app_name, entry.window_title, user_rules()))
+    title = EXCLUDED_TITLE_MARKER if excluded else redact(entry.window_title)
+    return {**record_switch(entry.app_name, title, entry.at), "excluded": excluded}
+
+
+@app.post("/activity/stop")
+def stop_activity(stop: ActivityStop):
+    """Activity paused: idle, sleep, screen lock or quit. Ends the open session."""
+    reason = stop.reason if stop.reason in ("idle", "sleep", "lock", "pause", "quit") else "idle"
+    ended_at = stop.ended_at
+    if ended_at is None and stop.ended_seconds_ago:
+        ended_at = (datetime.now(timezone.utc) - timedelta(seconds=stop.ended_seconds_ago)).isoformat()
+    return {"closed": close_open_session(reason, ended_at)}
 
 
 @app.get("/activity")
 def recent_activity(limit: int = 15):
     return get_recent_activity(limit)
+
+
+@app.get("/activity/today")
+def activity_today(since: str | None = None, limit: int = 8):
+    """Time per app since local midnight (or since a given time)."""
+    if since is None:
+        local_midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+        since = local_midnight.astimezone(timezone.utc).isoformat()
+    return {"since": since, "apps": time_per_app(since, limit=limit)}
 
 
 @app.delete("/activity")
@@ -191,43 +228,42 @@ def list_memories():
 @app.post("/memories")
 def create_memory(memory: MemoryCreate):
     # Typed notes are stored as written: the user chose to save them.
-    saved = insert_memory(memory.content)
-    add_to_vector_store(saved["id"], saved["content"])
-    related = find_related_memory(saved)
-    return {"memory": saved, "related_memory": related}
+    embedding = embed_text(memory.content)
+    saved, created = insert_trace(memory.content, embedding)
+    related = find_related_memory(saved, embedding) if created else None
+    return {"memory": saved, "related_memory": related, "duplicate": not created}
 
 
 @app.delete("/memories/{memory_id}")
 def delete_single_memory(memory_id: str):
-    deleted = delete_memory(memory_id)
-    if deleted:
-        delete_from_vector_store(memory_id)
-    return {"deleted": deleted}
+    return {"deleted": delete_memory(memory_id)}
 
 
 @app.delete("/memories")
 def delete_all_memories_endpoint():
-    count = delete_all_memories()
-    delete_all_from_vector_store()
-    return {"deleted_count": count}
+    return {"deleted_count": delete_all_memories()}
 
 
 @app.get("/search")
-def search_memories(q: str, limit: int = 5):
-    matches = query_vector_store(q, n_results=limit)
-    matching_ids = [m["id"] for m in matches]
-    memories_by_id = get_memories_by_ids(matching_ids)
-    return [memories_by_id[mid] for mid in matching_ids if mid in memories_by_id]
+def search_memories(q: str, limit: int = 5, since: str | None = None, until: str | None = None, app: str | None = None):
+    """Hybrid keyword and semantic search, optionally limited by time and app."""
+    ids = hybrid_search(q, embed_text(q), limit=limit, since=since, until=until, app=app)
+    by_id = get_memories_by_ids(ids)
+    return [by_id[i] for i in ids if i in by_id]
 
 
 # --- capture --------------------------------------------------------------
 
 def _save_capture(text: str, source: str, trigger: str, app_name: str, title: str) -> dict:
-    saved = insert_memory(text, source=source)
-    add_to_vector_store(saved["id"], saved["content"])
+    embedding = embed_text(text)
+    _, ratio = word_stats(text)
+    saved, created = insert_trace(text, embedding, source=source, app_name=app_name,
+                                  window_title=title, quality=round(ratio, 3))
+    if not created:
+        log_capture(trigger, "duplicate", app_name, title, "same text as an existing memory", memory_id=saved["id"])
+        return {"saved": False, "reason": "Already saved: the same text is in an existing memory.", "memory": saved}
     log_capture(trigger, "saved", app_name, title, memory_id=saved["id"])
-    related = find_related_memory(saved)
-    return {"saved": True, "memory": saved, "related_memory": related}
+    return {"saved": True, "memory": saved, "related_memory": find_related_memory(saved, embedding)}
 
 
 @app.post("/capture/screen")
@@ -323,7 +359,7 @@ def export_all_data():
     return {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "memories": get_all_memories(),
-        "activity_log": get_recent_activity(limit=10000),
+        "activity_sessions": get_recent_activity(limit=100000),
         "capture_log": get_capture_log(limit=100000),
         "exclusion_rules": user_rules(),
     }
@@ -334,6 +370,19 @@ def export_all_data():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/storage")
+def storage_info():
+    """For the Settings page: how the store is protected and what was imported."""
+    summary = store.get_setting(legacy_import.SUMMARY_KEY)
+    return {
+        "encrypted": True,
+        "cipher": "SQLCipher (AES-256)",
+        "key_location": "macOS Keychain, item dev.engram.app",
+        "schema_version": store.schema_version(store.connect()),
+        "legacy_import": json.loads(summary) if summary else None,
+    }
 
 
 @app.get("/generate")

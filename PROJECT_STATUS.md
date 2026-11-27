@@ -25,6 +25,13 @@ phased plan.
   manual capture of the previous window instead of Engram itself; a
   Capture Ledger page; network-zero proven by blocked-network API tests
   in CI and a sandboxed run of the real engine; docs/threat-model.md.
+- Phase 3 (memory store) is complete: one SQLCipher-encrypted SQLite
+  file with FTS5 and sqlite-vec replaces ChromaDB (ADR 0007), with the
+  key in the macOS Keychain passed over stdin (ADR 0008); numbered
+  migrations; traces, episodes and days tables; hybrid search with
+  reciprocal rank fusion and time/app filters; content-hash dedupe;
+  activity sessions that end on switch, idle, sleep, lock and quit; a
+  Today time-per-app panel; one-time import of the old store.
 
 Under the original plan, Phases 1-10 were completed (see README.md for full phase-by-phase details).
 Working local-first "second brain" app: native Tauri shell, local AI
@@ -35,14 +42,17 @@ and a working Dashboard.
 
 ## Tech stack
 Tauri v2 (Rust) + React/Vite/Tailwind frontend, Python/FastAPI AI
-sidecar bundled via PyInstaller, SQLite + ChromaDB storage.
+sidecar bundled via PyInstaller, one SQLCipher-encrypted SQLite file
+with FTS5 and sqlite-vec.
 
 ## Git workflow
 Branch per feature → PR → merge → delete branch → sync local main.
 Conventional commit prefixes: feat/fix/chore/docs.
 
 ## Next planned phase
-Phase 3 of the new plan: memory store (sqlite-vec, FTS5, SQLCipher).
+Phase 4 of the new plan: smarter capture (change-aware recapture while
+staying on one window, capture timing settings, Capture Screen made a
+secondary action).
 
 ## Known open items
 - OCR still picks up UI chrome within a scoped window; the quality
@@ -57,6 +67,9 @@ Phase 3 of the new plan: memory store (sqlite-vec, FTS5, SQLCipher).
   model loading); see ADR 0004 for the onedir alternative
 - Window titles and screen content need Screen Recording permission;
   without it, titles are empty and captures only see the desktop
-- The database is not encrypted at rest beyond FileVault (Phase 3)
+- Losing the Keychain item makes the database unreadable; a key
+  export and recovery path is still needed
+- The pre-Phase-3 backup folder in Application Support is plain text
+  until the owner deletes it
 - Connection-surfacing threshold (0.9) checked against a fixture
   set (ADR 0006); revisit with more real usage

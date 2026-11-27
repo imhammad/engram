@@ -16,6 +16,10 @@ const POLL_INTERVAL_SECS: u64 = 5;
 const DWELL_THRESHOLD_SECS: u64 = 30;
 const EXCLUSION_REFRESH_SECS: u64 = 30;
 const EXCLUDED_TITLE: &str = "[excluded]";
+/// No keyboard or mouse input for this long ends the current session.
+const IDLE_THRESHOLD_SECS: f64 = 5.0 * 60.0;
+/// A gap this long between two polls means the Mac was asleep.
+const SLEEP_GAP_SECS: u64 = POLL_INTERVAL_SECS * 4;
 
 /// A window that may be captured: not Engram, not excluded.
 #[derive(Clone, Serialize)]
@@ -89,6 +93,15 @@ pub async fn capture_window(app: &AppHandle, window: &WindowSnapshot, trigger: &
     response.json::<Value>().await.map_err(|e| format!("bad capture response: {e}"))
 }
 
+async fn stop_activity(app: &AppHandle, reason: &str, seconds_ago: f64) {
+    if let Some(req) = engine::request(app, reqwest::Method::POST, "/activity/stop") {
+        let _ = req
+            .json(&json!({ "reason": reason, "ended_seconds_ago": seconds_ago }))
+            .send()
+            .await;
+    }
+}
+
 async fn log_excluded(app: &AppHandle, app_name: &str, reason: &str) {
     if let Some(req) = engine::request(app, reqwest::Method::POST, "/ledger") {
         let _ = req
@@ -120,11 +133,48 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
         let mut handled_this_session = false;
         let mut last_refresh: Option<Instant> = None;
         let mut current_private = false;
+        // Set while activity is stopped (idle, sleep, lock, pause); the next
+        // window seen after that starts a fresh session.
+        let mut away = false;
+        // Wall-clock time of the previous poll. Monotonic time stops while
+        // the Mac sleeps, so only the wall clock shows the gap.
+        let mut last_tick = std::time::SystemTime::now();
 
         loop {
             tokio::time::sleep(Duration::from_secs(POLL_INTERVAL_SECS)).await;
-            if paused.load(Ordering::Relaxed) || !engine::is_ready(&app) {
+            let now = std::time::SystemTime::now();
+            let gap = now.duration_since(last_tick).map(|d| d.as_secs()).unwrap_or(0);
+            last_tick = now;
+            if !engine::is_ready(&app) {
                 continue;
+            }
+
+            // Work out whether the user has stepped away, and end the session if so.
+            let stop = if gap >= SLEEP_GAP_SECS {
+                Some(("sleep", gap as f64))
+            } else if paused.load(Ordering::Relaxed) {
+                Some(("pause", 0.0))
+            } else if crate::presence::screen_locked() {
+                Some(("lock", 0.0))
+            } else {
+                let idle = crate::presence::idle_seconds();
+                (idle >= IDLE_THRESHOLD_SECS).then_some(("idle", idle))
+            };
+            if let Some((reason, seconds_ago)) = stop {
+                // Sleep is reported even if already away, since it ends at the gap.
+                if !away || reason == "sleep" {
+                    println!("[window-tracker] activity stopped ({reason})");
+                    stop_activity(&app, reason, seconds_ago).await;
+                }
+                away = true;
+                if reason != "sleep" {
+                    continue;
+                }
+            }
+            if away {
+                // Back: treat the current window as a new session.
+                away = false;
+                last_key = (0, String::new());
             }
             if last_refresh.map_or(true, |t| t.elapsed().as_secs() >= EXCLUSION_REFRESH_SECS) {
                 if exclusions::refresh(&app).await {

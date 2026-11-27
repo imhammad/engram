@@ -58,7 +58,10 @@ fi
 
 # 2. Start the real engine inside the sandbox.
 cd "$ROOT/ai-engine"
-ENGRAM_TOKEN="$TOKEN" ENGRAM_PORT="$PORT" ENGRAM_DATA_DIR="$WORK/data" ENGRAM_MODEL_DIR="$MODELS" \
+# A throwaway database key for the throwaway data folder, piped on stdin
+# exactly as the app does.
+DB_KEY="$(openssl rand -hex 32)"
+printf '%s\n' "$DB_KEY" | ENGRAM_TOKEN="$TOKEN" ENGRAM_PORT="$PORT" ENGRAM_DATA_DIR="$WORK/data" ENGRAM_MODEL_DIR="$MODELS" \
   sandbox-exec -f "$PROFILE" "$PY" main.py >"$LOG" 2>&1 &
 ENGINE_PID=$!
 
@@ -90,5 +93,11 @@ if grep -qiE "Traceback|ConnectionError|Max retries|Name or service not known|no
   fail "the engine log shows network errors"
 fi
 echo "ok   no network errors in the engine log"
+
+# 6. The database it wrote is encrypted.
+if head -c 16 "$WORK/data/memory.db" | grep -q "SQLite format 3"; then
+  fail "memory.db is a plain SQLite file"
+fi
+echo "ok   memory.db is encrypted (no plain SQLite header)"
 
 echo "PASS: the engine works with outbound network access denied"
