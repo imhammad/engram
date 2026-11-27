@@ -6,7 +6,15 @@ A privacy-first, local-first "second brain" desktop app. Engram runs
 entirely on your machine — no cloud AI calls, no data leaving your
 laptop — and helps you query your own working memory using local AI.
 
-## Status: Phase 1 - Desktop Foundation (in progress)
+## Current status
+
+Engram now targets macOS on Apple Silicon. Under the new phased plan,
+Phase 0 (re-orientation and cleanup) and Phase 1 (run on macOS) are
+complete; Phase 2 (trust baseline) is next. See PROJECT_STATUS.md for
+details and docs/decisions/ for the architecture decision records.
+The phase sections below describe the original build.
+
+## Original Phase 1 - Desktop Foundation
 
 - [x] Tauri v2 + React + Vite scaffold
 - [x] Tailwind CSS integration
@@ -26,11 +34,10 @@ a Tauri sidecar on app startup, so no separate Python process or
 manual server start is required. Frontend communicates with it over
 local HTTP (`127.0.0.1:8000`), no data ever leaves the device.
 
-**Known limitation (tracked for Phase 5/packaging):** the sidecar
-currently locates its model files via an absolute path into the
-source tree, which works in dev but won't survive a real installer
-on another machine. This will be resolved when we build proper
-resource bundling for distribution.
+**Resolved in the macOS Phase 1:** the sidecar used to locate its
+model files through an absolute path into the source tree. Data and
+models now live in the app data directory and are passed to the
+engine at startup (see docs/decisions/0003).
 
 ## Phase 3 - Memory Graph / RAG Pipeline (complete)
 
@@ -213,8 +220,8 @@ and is worth remembering for any future additional windows.
 
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS
 - **Desktop shell:** Tauri v2 (Rust)
-- **AI engine (upcoming):** Python, FastAPI, llama.cpp
-- **Storage (upcoming):** ChromaDB (vector) + SQLite (metadata)
+- **AI engine:** Python, FastAPI, llama.cpp (Metal), sentence-transformers, faster-whisper, Tesseract
+- **Storage:** ChromaDB (vector) + SQLite (metadata)
 
 ## Architecture (high level)
 
@@ -236,12 +243,104 @@ and is worth remembering for any future additional windows.
 │ (local storage only) │
 └──────────────────────┘
 
-## Development
+## Development on macOS
+
+### Prerequisites
+
+- Apple Silicon Mac running a recent macOS
+- Xcode Command Line Tools: `xcode-select --install`
+- Homebrew packages: `brew install python@3.11 node cmake tesseract`
+- Rust via rustup (make sure `~/.cargo/bin` is on your PATH)
+
+### Python engine
+
+Create the virtual environment and install the pinned dependencies.
+llama-cpp-python is compiled from source, and the `CMAKE_ARGS` setting
+builds it with Metal so the language model runs on the GPU:
 
 ```bash
+cd ai-engine
+python3.11 -m venv .venv
+CMAKE_ARGS="-DGGML_METAL=on" .venv/bin/pip install -r requirements.txt
+```
+
+`requirements.in` lists the top-level dependencies and
+`requirements-dev.txt` the development tools (pytest, PyInstaller);
+`requirements.txt` is the lock generated from them on macOS.
+
+### Models (one-time, explicit download)
+
+The engine never downloads anything while it runs. Install the three
+models once; every file is pinned to a revision and checked against a
+SHA-256 hash:
+
+```bash
+ai-engine/.venv/bin/python ai-engine/scripts/fetch_models.py
+```
+
+They go to `~/Library/Application Support/dev.engram.app/models`. If
+`ai-engine/models` already holds the TinyLlama file, it is copied
+instead of downloaded. Use `--verify` to check an existing install.
+
+If you have memories from before the macOS move in `ai-engine/data`,
+copy them into the app data directory once (this never moves or
+overwrites anything):
+
+```bash
+ai-engine/.venv/bin/python ai-engine/scripts/migrate_dev_data.py
+```
+
+### Build the sidecar and run the app
+
+```bash
+scripts/build-sidecar.sh
 cd app
 npm install
 npm run tauri dev
+```
+
+`build-sidecar.sh` packages the engine with PyInstaller into
+`app/src-tauri/binaries/engram-ai-engine-aarch64-apple-darwin`. The app
+starts it, shows "Starting Engram" until it answers, and stops it on
+quit.
+
+### Working on the engine without rebuilding the sidecar
+
+Run the engine from the venv, then start the app with
+`ENGRAM_DEV_ENGINE=1` so it connects to that engine instead of
+spawning the sidecar:
+
+```bash
+cd ai-engine
+ENGRAM_DATA_DIR="$HOME/Library/Application Support/dev.engram.app/data" \
+ENGRAM_MODEL_DIR="$HOME/Library/Application Support/dev.engram.app/models" \
+.venv/bin/python main.py
+```
+
+```bash
+cd app
+ENGRAM_DEV_ENGINE=1 npm run tauri dev
+```
+
+`ENGRAM_DATA_DIR`, `ENGRAM_MODEL_DIR` and `TESSERACT_CMD` can also be
+set for the app itself to override the default locations.
+
+### Permissions
+
+macOS asks for two permissions. Screen Recording is needed to read
+window titles and capture on-screen text; grant it in System Settings,
+Privacy & Security, Screen Recording (the Settings page in Engram shows
+the current status and has a button that opens the pane), then restart
+Engram. The microphone is requested the first time you press Record.
+During `npm run tauri dev` macOS attributes both permissions to the
+terminal app you launched it from.
+
+### Tests
+
+```bash
+cd ai-engine && .venv/bin/python -m pytest tests/ -v
+cd app && npm run build
+cd app/src-tauri && cargo check
 ```
 
 ## Philosophy
