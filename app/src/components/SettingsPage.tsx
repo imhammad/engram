@@ -143,6 +143,13 @@ export default function SettingsPage() {
           device. Nothing is ever sent anywhere. You have full control
           to export or permanently delete it below.
         </p>
+        <p className="mb-4 text-sm text-ink-muted">
+          It is kept in one encrypted database (SQLCipher, AES-256) in
+          Application Support. The key is a random 256-bit secret stored in
+          your macOS Keychain as "dev.engram.app", so the file cannot be read
+          without your Mac login. If you delete that Keychain item, the
+          database can no longer be opened.
+        </p>
 
         <div className="flex flex-col gap-3 rounded-md border border-border bg-surface p-4">
           <div className="flex items-center justify-between">

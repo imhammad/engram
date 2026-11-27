@@ -1,6 +1,8 @@
 mod engine;
 mod exclusions;
+mod keys;
 mod permissions;
+mod presence;
 mod window_tracker;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -151,7 +153,10 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(|app, event| match event {
-        RunEvent::Exit => engine::stop(app),
+        RunEvent::Exit => {
+            engine::notify_quit(app);
+            engine::stop(app);
+        }
         // Clicking the Dock icon brings the hidden main window back.
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => show_main_window(app),

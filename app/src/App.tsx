@@ -56,9 +56,16 @@ function EngineStarting({ status }: { status: EngineStatus }) {
         ) : (
           <>
             <p className="text-sm font-medium text-ink">Starting Engram</p>
-            <p className="mt-2 text-sm text-ink-muted">
-              Loading the on-device models. This takes a few seconds.
-            </p>
+            {status.detail ? (
+              <p className="mt-2 text-sm text-ink-muted">
+                {status.detail}. If macOS asks whether Engram may use
+                "dev.engram.app" in your Keychain, choose Always Allow.
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-ink-muted">
+                Loading the on-device models. This takes a few seconds.
+              </p>
+            )}
           </>
         )}
       </div>

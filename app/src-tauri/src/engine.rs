@@ -134,30 +134,34 @@ fn resolve_dir(app: &AppHandle, env_var: &str, sub: &str) -> Result<PathBuf, Str
 
 /// Start the engine (unless ENGRAM_DEV_ENGINE=1) and wait for it in the background.
 pub fn start(app: &AppHandle) {
-    let dev_engine = std::env::var("ENGRAM_DEV_ENGINE").map(|v| v == "1").unwrap_or(false);
-
-    let result = if dev_engine {
-        // The developer started the engine by hand with these two variables.
-        match (std::env::var("ENGRAM_TOKEN"), std::env::var("ENGRAM_PORT")) {
-            (Ok(token), port) if token.len() >= 32 => {
-                let port = port.ok().and_then(|p| p.parse().ok()).unwrap_or(8000);
-                println!("[engine] ENGRAM_DEV_ENGINE=1: using the engine already running on port {port}");
-                set_connection(app, port, token);
-                Ok(())
-            }
-            _ => Err("ENGRAM_DEV_ENGINE=1 needs ENGRAM_TOKEN (32+ characters) and ENGRAM_PORT, the same values the engine was started with".to_string()),
-        }
-    } else {
-        spawn_sidecar(app)
-    };
-    if let Err(err) = result {
-        eprintln!("[engine] {err}");
-        set_status(app, "failed", Some(err));
-        return;
-    }
-
     let app = app.clone();
+    // Off the main thread: reading the key can wait on a macOS Keychain
+    // prompt, and the window must stay responsive (showing "Starting
+    // Engram") while the user answers it.
     tauri::async_runtime::spawn(async move {
+        let dev_engine = std::env::var("ENGRAM_DEV_ENGINE").map(|v| v == "1").unwrap_or(false);
+        let result = if dev_engine {
+            // The developer started the engine by hand with these two variables.
+            match (std::env::var("ENGRAM_TOKEN"), std::env::var("ENGRAM_PORT")) {
+                (Ok(token), port) if token.len() >= 32 => {
+                    let port = port.ok().and_then(|p| p.parse().ok()).unwrap_or(8000);
+                    println!("[engine] ENGRAM_DEV_ENGINE=1: using the engine already running on port {port}");
+                    set_connection(&app, port, token);
+                    Ok(())
+                }
+                _ => Err("ENGRAM_DEV_ENGINE=1 needs ENGRAM_TOKEN (32+ characters) and ENGRAM_PORT, the same values the engine was started with".to_string()),
+            }
+        } else {
+            let handle = app.clone();
+            tauri::async_runtime::spawn_blocking(move || spawn_sidecar(&handle))
+                .await
+                .unwrap_or_else(|e| Err(format!("engine start task failed: {e}")))
+        };
+        if let Err(err) = result {
+            eprintln!("[engine] {err}");
+            set_status(&app, "failed", Some(err));
+            return;
+        }
         wait_until_ready(app).await;
     });
 }
@@ -170,6 +174,9 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
 
     let token = generate_token()?;
     let port = pick_free_port()?;
+    set_status(app, "starting", Some("Waiting for the database key from the Keychain".into()));
+    let db_key = crate::keys::database_key()?;
+    set_status(app, "starting", None);
     println!("[engine] port:      {port}");
 
     let mut command = app
@@ -186,9 +193,15 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
         // `tauri dev` serves the UI from Vite, so allow that origin too.
         command = command.env("ENGRAM_DEV_ORIGIN", "http://localhost:1420");
     }
-    let (mut rx, child) = command
+    let (mut rx, mut child) = command
         .spawn()
         .map_err(|e| format!("could not start the engine sidecar: {e}"))?;
+    // The database key goes over stdin: unlike argv and the environment,
+    // other processes cannot read it. It is never logged.
+    child
+        .write(format!("{db_key}\n").as_bytes())
+        .map_err(|e| format!("could not hand the database key to the engine: {e}"))?;
+    drop(db_key);
     *app.state::<EngineState>().child.lock().unwrap() = Some(child);
     set_connection(app, port, token);
 
@@ -242,6 +255,20 @@ async fn wait_until_ready(app: AppHandle) {
     let detail = format!("the engine did not become ready within {}s", READY_TIMEOUT.as_secs());
     eprintln!("[engine] {detail}");
     set_status(&app, "failed", Some(detail));
+}
+
+/// Tell the engine the user quit, so the open activity session ends now.
+pub fn notify_quit(app: &AppHandle) {
+    if !is_ready(app) {
+        return;
+    }
+    if let Some(req) = request(app, reqwest::Method::POST, "/activity/stop") {
+        let send = req
+            .timeout(Duration::from_secs(1))
+            .json(&serde_json::json!({ "reason": "quit" }))
+            .send();
+        let _ = tauri::async_runtime::block_on(send);
+    }
 }
 
 /// Stop the sidecar so no orphaned engine keeps holding port 8000.
