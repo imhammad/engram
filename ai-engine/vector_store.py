@@ -1,22 +1,20 @@
-from pathlib import Path
+from paths import embedder_path, get_data_dir
 
 import chromadb
+from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
-import os
 
-DATA_DIR = Path(
-    os.environ.get(
-        "ENGRAM_DATA_DIR",
-        str(Path(__file__).parent / "data"),
-    )
+DATA_DIR = get_data_dir()
+
+# Telemetry off: the engine must make no network calls.
+_client = chromadb.PersistentClient(
+    path=str(DATA_DIR / "chroma"),
+    settings=Settings(anonymized_telemetry=False),
 )
-DATA_DIR.mkdir(exist_ok=True, parents=True)
-
-_client = chromadb.PersistentClient(path=str(DATA_DIR / "chroma"))
 _collection = _client.get_or_create_collection(name="memories")
 
 print("Loading embedding model, this may take a moment...")
-_embedder = SentenceTransformer("all-MiniLM-L6-v2")
+_embedder = SentenceTransformer(str(embedder_path()), device="cpu")
 print("Embedding model loaded successfully.")
 
 
