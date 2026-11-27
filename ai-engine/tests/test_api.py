@@ -6,7 +6,9 @@ loopback interface made to fail, so a library that tried to phone home
 """
 
 import importlib
+import io
 import ipaddress
+import secrets
 import socket
 import sys
 
@@ -16,7 +18,7 @@ TOKEN = "t" * 64
 ALLOWED_ORIGIN = "tauri://localhost"
 EVIL_ORIGIN = "https://evil.example"
 
-ENGINE_MODULES = ["main", "db", "vector_store", "ocr_capture", "audio_capture", "paths", "fake_models"]
+from conftest import ENGINE_MODULES, forget_engine_modules  # noqa: E402
 
 
 class NetworkAccessAttempted(AssertionError):
@@ -74,17 +76,20 @@ def engine(tmp_path, monkeypatch, no_network):
     monkeypatch.setenv("ENGRAM_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("ENGRAM_MODEL_DIR", str(tmp_path / "models"))
     monkeypatch.delenv("ENGRAM_DEV_ORIGIN", raising=False)
-    for name in ENGINE_MODULES:
-        sys.modules.pop(name, None)
+    # The engine reads its database key from stdin, as it does from the app.
+    key = secrets.token_hex(32)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(key + "\n"))
+    forget_engine_modules()
     main = importlib.import_module("main")
+    main.test_key = key
     from fastapi.testclient import TestClient
 
     client = TestClient(main.app)
     client.headers.update({"X-Engram-Token": TOKEN})
     yield main, client
     client.close()
-    for name in ENGINE_MODULES:
-        sys.modules.pop(name, None)
+    main.store.close_thread_connection()
+    forget_engine_modules()
 
 
 # --- authentication and CORS ----------------------------------------------
@@ -134,12 +139,10 @@ def test_engine_refuses_to_start_without_token(monkeypatch, tmp_path):
     monkeypatch.setenv("ENGRAM_FAKE_MODELS", "1")
     monkeypatch.setenv("ENGRAM_DATA_DIR", str(tmp_path))
     monkeypatch.delenv("ENGRAM_TOKEN", raising=False)
-    for name in ENGINE_MODULES:
-        sys.modules.pop(name, None)
+    forget_engine_modules()
     with pytest.raises(SystemExit):
         importlib.import_module("main")
-    for name in ENGINE_MODULES:
-        sys.modules.pop(name, None)
+    forget_engine_modules()
 
 
 # --- full flows with the network cut off ------------------------------------
@@ -154,6 +157,7 @@ def test_save_search_export_delete_flow(engine):
     assert results[0]["id"] == note["memory"]["id"]
 
     exported = client.get("/export").json()
+    assert "activity_sessions" in exported
     assert {m["id"] for m in exported["memories"]} == {note["memory"]["id"], other["memory"]["id"]}
     assert "capture_log" in exported
 
@@ -245,8 +249,8 @@ def test_ledger_delete_and_clear(engine):
 
 def test_noisy_memories_are_not_offered_as_connections(engine, monkeypatch):
     main, client = engine
-    junk = main.insert_memory("search feature @ © 8 Bie O's x + eaiA", source="screen_ocr")
-    main.add_to_vector_store(junk["id"], junk["content"])
+    junk_text = "search feature @ © 8 Bie O's x + eaiA"
+    main.insert_trace(junk_text, main.embed_text(junk_text), source="screen_ocr")
     resp = client.post("/memories", json={"content": "search feature"}).json()
     assert resp["related_memory"] is None
 
@@ -263,3 +267,54 @@ def test_network_guard_itself_blocks_outside_addresses(monkeypatch):
     attempts.clear()
     with pytest.raises(StopIteration):
         next(guard)
+
+
+def test_capturing_the_same_text_twice_is_recorded_as_duplicate(engine, monkeypatch):
+    _, client = engine
+    monkeypatch.setenv("ENGRAM_FAKE_OCR_TEXT", "Weekly planning notes for the robotics club meeting next Tuesday afternoon")
+    first = client.post("/capture/screen", json={"app_name": "Notes", "trigger": "auto"}).json()
+    second = client.post("/capture/screen", json={"app_name": "Notes", "trigger": "auto"}).json()
+    assert first["saved"] is True and second["saved"] is False
+    assert second["memory"]["id"] == first["memory"]["id"]
+    assert [e["outcome"] for e in client.get("/ledger").json()] == ["duplicate", "saved"]
+    assert len(client.get("/memories").json()) == 1
+
+
+def test_activity_sessions_and_today(engine):
+    _, client = engine
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    t = lambda s: (now - timedelta(seconds=s)).isoformat()  # noqa: E731
+    client.post("/activity", json={"app_name": "Pages", "window_title": "Report", "at": t(300)})
+    client.post("/activity", json={"app_name": "Mail", "window_title": "Inbox", "at": t(120)})
+    client.post("/activity/stop", json={"reason": "idle", "ended_at": t(60)})
+    today = client.get("/activity/today", params={"since": t(3600)}).json()["apps"]
+    assert today == [{"app_name": "Pages", "seconds": 180}, {"app_name": "Mail", "seconds": 60}]
+    recent = client.get("/activity").json()
+    assert recent[0]["end_reason"] == "idle"
+
+
+def test_search_filters_through_the_api(engine):
+    _, client = engine
+    client.post("/memories", json={"content": "Robotics club budget for the spring term"})
+    hits = client.get("/search", params={"q": "robotics budget", "since": "2999-01-01T00:00:00+00:00"}).json()
+    assert hits == []
+    assert len(client.get("/search", params={"q": "robotics budget"}).json()) == 1
+
+
+def test_storage_endpoint_reports_encryption(engine):
+    _, client = engine
+    info = client.get("/storage").json()
+    assert info["encrypted"] is True and info["schema_version"] == 1
+
+
+def test_activity_stop_accepts_seconds_ago(engine):
+    _, client = engine
+    from datetime import datetime, timedelta, timezone
+
+    start = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
+    client.post("/activity", json={"app_name": "Xcode", "window_title": "Engram", "at": start})
+    closed = client.post("/activity/stop", json={"reason": "idle", "ended_seconds_ago": 300}).json()["closed"]
+    assert closed["end_reason"] == "idle"
+    assert 95 <= closed["duration_seconds"] <= 105
