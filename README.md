@@ -9,8 +9,9 @@ laptop — and helps you query your own working memory using local AI.
 ## Current status
 
 Engram now targets macOS on Apple Silicon. Under the new phased plan,
-Phase 0 (re-orientation and cleanup), Phase 1 (run on macOS) and Phase 2
-(trust baseline) are complete; Phase 3 (memory store) is next. See PROJECT_STATUS.md for
+Phase 0 (re-orientation and cleanup), Phase 1 (run on macOS), Phase 2
+(trust baseline) and Phase 3 (memory store) are complete; Phase 4
+(smarter capture) is next. See PROJECT_STATUS.md for
 details and docs/decisions/ for the architecture decision records.
 The phase sections below describe the original build.
 
@@ -241,12 +242,44 @@ captured text before storing it, and lists every capture attempt on the
 Ledger page. See docs/threat-model.md for the full picture, including what
 is out of scope.
 
+## Storage
+
+Everything Engram keeps is in one encrypted file,
+`~/Library/Application Support/dev.engram.app/data/memory.db`: SQLite with
+SQLCipher (AES-256) for encryption, FTS5 for keyword search and sqlite-vec
+for vector search (ADR 0007). The key is a random 256-bit value stored in
+your macOS Keychain and handed to the engine over stdin (ADR 0008).
+
+Search is hybrid: keyword (BM25) and meaning (cosine similarity) rankings are
+merged with reciprocal rank fusion, and can be limited by time and app.
+Identical text is stored once. Activity is kept as sessions with durations,
+which pause when you are idle for five minutes, lock the screen or the Mac
+sleeps; the Dashboard shows today's time per app.
+
+`ai-engine/scripts/benchmark_store.py` on an M5 MacBook Air, 10,000
+synthetic memories:
+
+| | p50 | p95 |
+|---|---|---|
+| hybrid search | 29.7 ms | 36.6 ms |
+| keyword only | 8.4 ms | 9.4 ms |
+| vector only | 20.1 ms | 25.2 ms |
+
+Inserting takes about 0.3 ms per memory (plus embedding), and 10,000
+memories take 25.8 MB.
+
+On the first start after updating from an earlier version, Engram moves the
+old plain `engram.db` and `chroma/` into a `backup-before-phase3-...` folder
+next to `data/` and imports everything into the encrypted store. Delete that
+backup folder once you have checked your memories came across, since it is
+not encrypted.
+
 ## Tech Stack
 
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS
 - **Desktop shell:** Tauri v2 (Rust)
 - **AI engine:** Python, FastAPI, llama.cpp (Metal), sentence-transformers, faster-whisper, Tesseract
-- **Storage:** ChromaDB (vector) + SQLite (metadata)
+- **Storage:** one SQLite file: SQLCipher (encryption), FTS5 (keywords), sqlite-vec (vectors)
 
 ## Architecture (high level)
 
@@ -264,7 +297,7 @@ is out of scope.
 │
 ▼
 ┌──────────────────────┐
-│ ChromaDB + SQLite │
+│ SQLite: SQLCipher, FTS5, sqlite-vec │
 │ (local storage only) │
 └──────────────────────┘
 
@@ -336,10 +369,14 @@ Run the engine from the venv, then start the app with
 spawning the sidecar. The engine requires a token, so pick one and use the
 same token and port in both terminals:
 
+The engine also needs the database key on stdin; the app creates it in the
+Keychain the first time it runs, and `security` reads it back:
+
 ```bash
 export ENGRAM_TOKEN="$(openssl rand -hex 32)" ENGRAM_PORT=8765
 echo "$ENGRAM_TOKEN"   # copy this into the second terminal
 cd ai-engine
+security find-generic-password -s dev.engram.app -a database-key -w | \
 ENGRAM_DEV_ORIGIN=http://localhost:1420 \
 ENGRAM_DATA_DIR="$HOME/Library/Application Support/dev.engram.app/data" \
 ENGRAM_MODEL_DIR="$HOME/Library/Application Support/dev.engram.app/models" \
@@ -375,6 +412,7 @@ cd ai-engine && .venv/bin/python -m pytest tests/ -v
 cd app && npm run build
 cd app/src-tauri && cargo check && cargo test --lib
 scripts/verify-network-zero.sh
+ai-engine/.venv/bin/python ai-engine/scripts/benchmark_store.py
 ```
 
 ### Existing memories from before Phase 2
