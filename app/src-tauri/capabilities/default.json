@@ -1,16 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for Engram's windows: the main window, the floating mark and the quick panel",
   "windows": [
     "main",
-    "popup"
+    "mark",
+    "quick"
   ],
   "permissions": [
     "core:default",
     "opener:default",
     "shell:default",
     "shell:allow-execute",
-    "core:tray:default"
+    "core:tray:default",
+    "core:window:allow-start-dragging"
   ]
 }

@@ -355,13 +355,39 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                 if let Ok(body) = capture_window(&app_handle, &snapshot, trigger).await {
                     if body["saved"].as_bool() == Some(true) {
                         if let Some(message) = connection_message(&body) {
-                            crate::present_popup(&app_handle, &message);
+                            crate::overlay::connection_found(&app_handle, message);
                         }
                     }
                 }
             });
         }
     });
+}
+
+/// The Keep shortcut: capture whatever is in front right now and pin it so
+/// it never fades. If Engram itself is in front, keep the window the user
+/// was on before (the Stage Manager-safe path).
+pub async fn keep_front_window(app: &AppHandle) {
+    let own_pid = std::process::id() as u64;
+    let front = get_active_window().ok().filter(|w| w.process_id != own_pid);
+    let result = match front {
+        Some(window) => {
+            let snapshot = WindowSnapshot::from_active(&window);
+            if let Some(reason) = exclusions::current(app).and_then(|r| r.matches(&snapshot.app_name, &snapshot.title)) {
+                Ok(json!({ "saved": false, "reason": format!("Not kept: {reason}.") }))
+            } else if check_private(&snapshot.app_name).await {
+                Ok(json!({ "saved": false, "reason": "Not kept: private browsing window." }))
+            } else {
+                capture_window(app, &snapshot, "keep").await
+            }
+        }
+        None => capture_previous_window_with(app.clone(), "keep").await,
+    };
+    let kept = result.as_ref().map(|b| b["kept"].as_bool() == Some(true)).unwrap_or(false);
+    println!("[presence] Keep: {}", if kept { "kept" } else { "nothing kept" });
+    if kept {
+        crate::overlay::update_mark(app, |m| m.kept(Instant::now()));
+    }
 }
 
 /// The .app bundle that contains an executable, e.g.
@@ -416,6 +442,10 @@ async fn wait_until_front_and_settled(target_pid: u64) -> Option<WindowSnapshot>
 /// re-reads where the window now is, captures that, and comes back.
 #[tauri::command]
 pub async fn capture_previous_window(app: AppHandle) -> Result<Value, String> {
+    capture_previous_window_with(app, "manual").await
+}
+
+pub async fn capture_previous_window_with(app: AppHandle, trigger: &str) -> Result<Value, String> {
     let snapshot = app
         .state::<LastWindow>()
         .0
@@ -452,7 +482,7 @@ pub async fn capture_previous_window(app: AppHandle) -> Result<Value, String> {
             } else {
                 // A moment for the window's content to finish redrawing.
                 tokio::time::sleep(Duration::from_millis(150)).await;
-                capture_window(&app, &window, "manual").await
+                capture_window(&app, &window, trigger).await
             }
         }
     };

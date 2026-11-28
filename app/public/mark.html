@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Engram</title>
+    <style>
+      :root {
+        --ground: #f7f5f2;
+        --rim: #e5e2dc;
+        --ink: #0f6b5c;
+        --glow: #c9852c;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --ground: #26231f; --rim: #3a3530; --ink: #7cc4ad; --glow: #e0a352; }
+      }
+      html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+      body { width: 34px; height: 34px; display: grid; place-items: center; -webkit-user-select: none; user-select: none; }
+      button {
+        all: unset; box-sizing: border-box; width: 30px; height: 30px; border-radius: 50%;
+        display: grid; place-items: center; cursor: default;
+        background: var(--ground); border: 1px solid var(--rim);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+        transition: opacity 400ms ease, box-shadow 600ms ease, border-color 600ms ease, transform 200ms ease;
+      }
+      button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+      svg { width: 20px; height: 20px; display: block; }
+      .stroke { fill: var(--ink); transition: fill 400ms ease; }
+
+      /* Capturing: a soft, slow pulse of the rim. */
+      .capturing button { animation: pulse 1.6s ease-in-out infinite; border-color: var(--ink); }
+      @keyframes pulse {
+        0%, 100% { box-shadow: 0 1px 3px rgba(0,0,0,.18), 0 0 0 0 color-mix(in srgb, var(--ink) 35%, transparent); }
+        50% { box-shadow: 0 1px 3px rgba(0,0,0,.18), 0 0 0 4px color-mix(in srgb, var(--ink) 0%, transparent); }
+      }
+      /* Connection: a gentle warm glow until the panel is opened. */
+      .connection button {
+        border-color: var(--glow);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--glow) 30%, transparent), 0 0 12px color-mix(in srgb, var(--glow) 55%, transparent);
+      }
+      .connection .stroke { fill: var(--glow); }
+      /* Kept: a brief, firm confirmation. */
+      .kept button { transform: scale(1.12); border-color: var(--ink); background: color-mix(in srgb, var(--ink) 14%, var(--ground)); }
+      /* Paused: dimmed. */
+      .paused button { opacity: 0.45; }
+      .paused .stroke { fill: #8a857d; }
+
+      @media (prefers-reduced-motion: reduce) {
+        button { transition: none; }
+        .capturing button { animation: none; box-shadow: 0 0 0 2px var(--ink); }
+        .kept button { transform: none; }
+      }
+    </style>
+  </head>
+  <body class="idle">
+    <button id="mark" aria-label="Engram. Click to ask.">
+      <!-- A single line that thins and fades at one end: a memory trace. -->
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <defs>
+          <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#fff" stop-opacity="0.05" />
+            <stop offset="0.55" stop-color="#fff" stop-opacity="0.7" />
+            <stop offset="1" stop-color="#fff" stop-opacity="1" />
+          </linearGradient>
+          <mask id="m"><rect width="24" height="24" fill="url(#fade)" /></mask>
+        </defs>
+        <path class="stroke" mask="url(#m)"
+          d="M3 15.2 C 6.5 14.6, 9.5 11.6, 13 10.4 C 15.6 9.5, 17.8 9.2, 19.6 9.6
+             C 21.2 10 21.2 12 19.6 12.4 C 17.6 12.9, 15.6 12.6, 13.3 13.2
+             C 9.8 14.1, 6.6 15.6, 3 15.4 Z" />
+      </svg>
+    </button>
+    <script>
+      const T = window.__TAURI__;
+      const mark = document.getElementById("mark");
+      const labels = {
+        idle: "Engram. Click to ask.",
+        capturing: "Engram is capturing this window.",
+        connection: "Engram found a connection to an older memory. Click to see it.",
+        kept: "Kept. This window will not fade.",
+        paused: "Engram capture is paused. Click to ask.",
+      };
+      function show(look) {
+        document.body.className = look;
+        mark.setAttribute("aria-label", labels[look] || labels.idle);
+        mark.title = labels[look] || labels.idle;
+      }
+      T.event.listen("mark-look", (e) => show(e.payload));
+      T.core.invoke("mark_look").then(show);
+
+      // A click opens the panel; a drag moves the mark (its position is remembered).
+      let down = null;
+      mark.addEventListener("mousedown", (e) => { down = { x: e.screenX, y: e.screenY }; });
+      mark.addEventListener("mousemove", (e) => {
+        if (down && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 3) {
+          down = null;
+          T.window.getCurrentWindow().startDragging();
+        }
+      });
+      mark.addEventListener("mouseup", () => {
+        if (down) T.core.invoke("toggle_quick", { anchor: "mark" });
+        down = null;
+      });
+      mark.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); T.core.invoke("toggle_quick", { anchor: "mark" }); }
+      });
+    </script>
+  </body>
+</html>

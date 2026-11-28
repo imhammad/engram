@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { api } from "../lib/api";
 
 type Memory = {
@@ -16,8 +17,6 @@ export default function MemoriesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Memory[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const [capturing, setCapturing] = useState(false);
-  const [captureMessage, setCaptureMessage] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [audioMessage, setAudioMessage] = useState<string | null>(null);
   const [captureEnabled, setCaptureEnabled] = useState(true);
@@ -29,6 +28,12 @@ export default function MemoriesPage() {
 
   useEffect(() => {
     loadMemories();
+    // Pause can also be set from the menu bar; keep the label in step.
+    invoke<boolean>("get_capture_paused").then((p) => setCaptureEnabled(!p));
+    const off = listen<boolean>("capture-paused", (e) => setCaptureEnabled(!e.payload));
+    return () => {
+      off.then((f) => f());
+    };
   }, []);
 
 async function saveMemory() {
@@ -57,28 +62,6 @@ async function saveMemory() {
   await invoke("set_capture_paused", { paused: newPausedState });
   setCaptureEnabled(!newPausedState);
   }
-
-  async function captureScreen() {
-  setCapturing(true);
-  setCaptureMessage(null);
-  try {
-    // Captures the window you were using before switching to Engram.
-    const data = await invoke<{ saved: boolean; reason?: string }>(
-      "capture_previous_window",
-    );
-    if (data.saved) {
-      setCaptureMessage("Captured and saved.");
-      await loadMemories();
-    } else {
-      setCaptureMessage(data.reason || "Nothing readable was captured.");
-    }
-  } catch (err) {
-    setCaptureMessage(typeof err === "string" ? err : "Could not capture the window.");
-  } finally {
-    setCapturing(false);
-    setTimeout(() => setCaptureMessage(null), 5000);
-  }
-}
 
 async function toggleKeep(m: Memory) {
   await api(`/memories/${m.id}/keep`, { method: "POST", body: { pinned: !m.pinned } });
@@ -179,17 +162,10 @@ async function captureAudio() {
       <p className="mb-3 text-sm text-ink-muted">
         Engram captures the window you are working in on its own, and again
         when what you are looking at changes. You do not need to press
-        anything.
+        anything. To keep the window in front for good, press Keep
+        (Option-Shift-K by default) from anywhere.
       </p>
       <div className="flex items-center gap-3">
-        <button
-          onClick={captureScreen}
-          disabled={capturing}
-          title="Capture the window you were using before switching to Engram"
-          className="rounded-md px-2 py-1 text-xs text-ink-muted underline-offset-2 hover:text-ink hover:underline disabled:opacity-50"
-        >
-          {capturing ? "Capturing..." : "Capture now"}
-        </button>
         <button
           onClick={captureAudio}
           disabled={recording}
@@ -198,9 +174,9 @@ async function captureAudio() {
           {recording ? "Recording..." : "Record 8s"}
         </button>
       </div>
-      {(captureMessage || audioMessage) && (
+      {audioMessage && (
         <p className="mt-2 text-sm text-ink-muted">
-          {captureMessage || audioMessage}
+          {audioMessage}
         </p>
       )}
     </div>
