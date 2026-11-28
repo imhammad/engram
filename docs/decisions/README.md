@@ -33,5 +33,6 @@ the link in both.
 - [0012: The Recall pipeline: routing, grounding and abstention](0012-recall-pipeline.md)
 - [0013: Consolidation into episodes and day summaries](0013-consolidation.md)
 - [0014: Forgetting by design](0014-forgetting-by-design.md)
+- [0015: The presence: menu-bar mode, a floating mark and global shortcuts](0015-the-presence.md)
 
 See also [the threat model](../threat-model.md).

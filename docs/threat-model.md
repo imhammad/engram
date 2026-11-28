@@ -2,7 +2,7 @@
 
 This document describes what Engram stores, where it lives, who can reach it,
 what the macOS permissions it asks for allow, and what it does not try to
-defend against. It reflects the state after Phase 6 (consolidation and forgetting).
+defend against. It reflects the state after Phase 7 (the presence).
 
 ## What Engram stores
 
@@ -117,6 +117,10 @@ device, the same as everything else.
   commands to that browser. Engram only asks for the mode of the front window
   (normal or incognito), so that it can skip incognito windows. It sends no
   other commands.
+- **Global shortcuts** (ask and Keep) are registered as system hot keys,
+  which macOS delivers only when that exact combination is pressed.
+  Engram does not see any other keystrokes. Keep captures the window in
+  front through the same exclusions and redaction as any capture.
 - Engram does not ask for Input Monitoring, Full Disk Access, Contacts,
   Calendars or Location.
 

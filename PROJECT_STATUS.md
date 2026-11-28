@@ -55,6 +55,16 @@ phased plan.
   forgetting by design with Never as the default, a preview before it
   is turned on, and Keep and recall-refresh protection (ADR 0014); small
   talk and activity window titles handled in Recall.
+- Phase 7 (the presence) is complete: menu-bar mode with an optional Dock
+  icon and a fuller tray menu; a floating, draggable, non-activating mark
+  on all Spaces with idle, capturing, connection, kept and paused looks;
+  a Spotlight-style ask panel (Option-Space) that streams Recall answers
+  and saves notes with Cmd-Return; Keep (Option-Shift-K) captures and
+  pins the front window; configurable shortcuts with conflict checks;
+  the corner popup retired in favour of the mark and panel; launch at
+  login (off by default); Vision OCR reads multi-column screens column
+  by column; IBM Plex bundled instead of loaded from Google Fonts
+  (ADR 0015).
 
 Under the original plan, Phases 1-10 were completed (see README.md for full phase-by-phase details).
 Working local-first "second brain" app: native Tauri shell, local AI
@@ -73,8 +83,7 @@ Branch per feature → PR → merge → delete branch → sync local main.
 Conventional commit prefixes: feat/fix/chore/docs.
 
 ## Next planned phase
-Phase 7 of the new plan: the presence (menu-bar mode, a floating mark,
-a global hotkey, a Keep shortcut).
+Phase 8 of the new plan: proof (measuring that Engram actually helps).
 
 ## Known open items
 - OCR still picks up UI chrome within a scoped window; the quality
@@ -93,5 +102,8 @@ a global hotkey, a Keep shortcut).
   export and recovery path is still needed
 - The pre-Phase-3 backup folder in Application Support is plain text
   until the owner deletes it
+- The floating mark and ask panel rely on tauri-nspanel (a community
+  crate) and Tauri's macos-private-api; Option-Space can clash with apps
+  that use it, and can be changed in Settings
 - Connection-surfacing threshold (0.9) checked against a fixture
   set (ADR 0006); revisit with more real usage
