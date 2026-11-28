@@ -170,6 +170,9 @@ def test_empty_question_is_rejected(client):
 
 def test_several_captures_of_one_page_become_one_source():
     page = {"app_name": "Google Chrome", "url": "https://en.wikipedia.org/wiki/EEG", "window_title": "EEG", "created_at": "2026-11-27T10:00:00+00:00"}
-    memories = [{**page, "id": "a", "content": "EEG first capture"}, {**page, "id": "b", "content": "EEG second capture"},
+    memories = [{**page, "id": "a", "content": "EEG first capture, longer text"}, {**page, "id": "b", "content": "EEG second"},
                 {"id": "c", "app_name": "Notes", "url": "", "window_title": "Lee", "content": "Meeting", "created_at": "2026-11-27T11:00:00+00:00"}]
     assert [s.id for s in recall.build_sources(memories, "eeg")] == ["a", "c"]
+    # The fullest capture of the page wins even if it ranked lower.
+    memories[1]["content"] = "EEG second capture with the whole article " * 5
+    assert [s.id for s in recall.build_sources(memories, "eeg")] == ["b", "c"]

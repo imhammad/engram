@@ -178,10 +178,36 @@ def answer_activity(question: str, period: Period, app: str | None, tz) -> dict:
 
 # --- retrieval and grounding ---------------------------------------------------
 
+def reflow(text: str) -> str:
+    """Rejoin text that Accessibility split around links and formatting.
+
+    A web page's text arrives as many short pieces ("is a method to record
+    an", "electrogram", "of the spontaneous..."). Lines that don't end a
+    sentence are joined to the next, so the model reads prose, not a list."""
+    out: list[str] = []
+    for line in (l.strip() for l in text.splitlines()):
+        if not line:
+            continue
+        if (out and len(out[-1]) < 400 and not re.search(r"[.!?:;]$", out[-1])
+                and (len(out[-1]) < 80 or line[:1].islower() or line[:1] in ",.;:)]")):
+            sep = "" if line[:1] in ",.;:)]" or out[-1].endswith(("(", "[")) else " "
+            out[-1] = out[-1] + sep + line
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def best_excerpt(text: str, question: str, limit: int = SOURCE_CHARS) -> str:
     """The part of a long trace that best matches the question's words."""
+    text = reflow(text)
     if len(text) <= limit:
         return text
+    # Start with the document's opening paragraph (what it is about), then the
+    # part that best matches the question.
+    lead = next((l for l in text.splitlines() if len(l.split()) >= 12), "")[:350] if limit >= 600 else ""
+    if lead:
+        rest = best_excerpt(text.replace(lead, "", 1), question, limit - len(lead) - 5) if limit - len(lead) > 200 else ""
+        return f"{lead}\n...\n{rest}" if rest else lead
     words = {w for w in re.findall(r"\w+", question.lower()) if len(w) > 2}
     lines = [l for l in text.splitlines() if l.strip()]
     best_start, best_score = 0, -1
@@ -203,14 +229,24 @@ def best_excerpt(text: str, question: str, limit: int = SOURCE_CHARS) -> str:
     return "\n".join(out)
 
 
+def _page(m: dict):
+    return (m.get("app_name"), m.get("url") or m.get("window_title")) if (m.get("url") or m.get("window_title")) else m["id"]
+
+
 def build_sources(memories: list[dict], question: str) -> list[Source]:
-    sources, used, seen = [], 0, set()
+    # Several captures of the same page add nothing but length: keep one per
+    # page, in the rank of its best-ranked capture, using the fullest text
+    # (an Accessibility capture of the whole page beats an earlier OCR one).
+    order, fullest = [], {}
     for m in memories:
-        # Several captures of the same page add nothing but length: keep the first.
-        page = (m.get("app_name"), m.get("url") or m.get("window_title")) if (m.get("url") or m.get("window_title")) else m["id"]
-        if page in seen:
-            continue
-        seen.add(page)
+        page = _page(m)
+        if page not in fullest:
+            order.append(page)
+            fullest[page] = m
+        elif len(m["content"]) > len(fullest[page]["content"]):
+            fullest[page] = m
+    sources, used = [], 0
+    for m in (fullest[p] for p in order):
         excerpt = best_excerpt(m["content"], question)
         if used + len(excerpt) > CONTEXT_CHARS and sources:
             break

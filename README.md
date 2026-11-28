@@ -9,8 +9,9 @@ laptop — and helps you query your own working memory using local AI.
 ## Current status
 
 Engram now targets macOS on Apple Silicon. Under the new phased plan,
-Phases 0 to 4 (cleanup, run on macOS, trust baseline, memory store,
-smarter capture) are complete; Phase 5 (recall) is next. See PROJECT_STATUS.md for
+Phases 0 to 5 (cleanup, run on macOS, trust baseline, memory store,
+smarter capture, recall) are complete; Phase 6 (consolidation and
+forgetting) is next. See PROJECT_STATUS.md for
 details and docs/decisions/ for the architecture decision records.
 The phase sections below describe the original build.
 
@@ -241,6 +242,49 @@ captured text before storing it, and lists every capture attempt on the
 Ledger page. See docs/threat-model.md for the full picture, including what
 is out of scope.
 
+## Recall
+
+Recall is the first screen. Ask a question in plain words and Engram answers
+from your own memories, with numbered sources you can open, in about a
+second, without anything leaving your Mac (ADR 0012):
+
+- **Activity questions** ("How long was I in Chrome today?", "Which apps did
+  I use yesterday?", "When did I last use Slack?") are answered from your
+  activity sessions by code, so the numbers are exact, with a per-app
+  breakdown.
+- **Period summaries** ("What did I work on yesterday?") give the period's
+  totals and a short summary of what you saw, each sentence citing its
+  source.
+- **Content questions** ("What was that EEG article about?") search your
+  memories by keyword and meaning, limited to the time and app the question
+  mentions, and the model answers only from what it found. Every sentence
+  cites a source; sentences that don't are removed. If nothing relevant is
+  in your memories, Engram says "I couldn't find that in your memories"
+  instead of guessing.
+
+Time phrases (yesterday, last night, on Tuesday, the 25th, 2 hours ago,
+between 2 and 4pm) are worked out in your local time zone by code, not by
+the model. The answer model is Qwen3-4B-Instruct-2507 (Apache 2.0, 2.5 GB,
+ADR 0011), running on the GPU through llama.cpp.
+
+Evaluation (`ai-engine/scripts/eval_recall.py`): a synthetic three-day memory
+with 30 questions, on an M5 MacBook Air:
+
+| metric | Qwen3-4B (chosen) | Phi-4-mini |
+|---|---|---|
+| answer accuracy (25 answerable) | 100% | 96% |
+| retrieval recall at 5 | 100% | 100% |
+| citations pointing at the right memory | 100% | 100% |
+| unanswerable questions declined (5) | 100% | 100% |
+| answerable questions wrongly declined | 0% | 7% |
+| time to first token, p50 / p95 | 0.19 s / 0.43 s | 0.20 s / 0.56 s |
+| full answer, p50 / p95 | 0.82 s / 3.6 s | 0.97 s / 5.6 s |
+
+The set is small and was written alongside the pipeline, so treat 100% as
+"passes these 30", not as a guarantee. On real memories, where captured
+pages are long, answers took 1.5 to 4.5 seconds (first words after about
+one second).
+
 ## How capture works
 
 Capture is automatic. When a window has been in front for 30 seconds,
@@ -312,7 +356,7 @@ not encrypted.
 
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS
 - **Desktop shell:** Tauri v2 (Rust)
-- **AI engine:** Python, FastAPI, llama.cpp (Metal), sentence-transformers, faster-whisper, Apple Vision OCR
+- **AI engine:** Python, FastAPI, llama.cpp (Metal) with Qwen3-4B-Instruct, sentence-transformers, faster-whisper, Apple Vision OCR
 - **Storage:** one SQLite file: SQLCipher (encryption), FTS5 (keywords), sqlite-vec (vectors)
 
 ## Architecture (high level)
@@ -370,9 +414,10 @@ SHA-256 hash:
 ai-engine/.venv/bin/python ai-engine/scripts/fetch_models.py
 ```
 
-They go to `~/Library/Application Support/dev.engram.app/models`. If
-`ai-engine/models` already holds the TinyLlama file, it is copied
-instead of downloaded. Use `--verify` to check an existing install.
+They go to `~/Library/Application Support/dev.engram.app/models`: the
+answer model Qwen3-4B-Instruct-2507 (2.5 GB), the embedding model and the
+speech model. Use `--verify` to check an existing install. The old
+TinyLlama file, if you have one, is no longer used and can be deleted.
 
 If you have memories from before the macOS move in `ai-engine/data`,
 copy them into the app data directory once (this never moves or
