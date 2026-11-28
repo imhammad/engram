@@ -176,3 +176,29 @@ def test_several_captures_of_one_page_become_one_source():
     # The fullest capture of the page wins even if it ranked lower.
     memories[1]["content"] = "EEG second capture with the whole article " * 5
     assert [s.id for s in recall.build_sources(memories, "eeg")] == ["b", "c"]
+
+
+# --- fixes from the owner's testing --------------------------------------------------
+
+@pytest.mark.parametrize("q", ["Can I ask you a question?", "hi", "thanks!", "what can you do?", "Hello Engram, how are you?"])
+def test_small_talk_gets_a_reply_without_sources(client, q):
+    seed(client)
+    result = ask(client, q)
+    assert result["route"] == "chat" and result["sources"] == []
+    assert "Ask me about anything" in result["answer"]
+
+
+@pytest.mark.parametrize("q", ["Can I ask you about the EEG article?", "who is Paolo", "what did I read about seizures"])
+def test_real_questions_are_not_small_talk(q):
+    assert recall.classify(q) != "chat"
+
+
+def test_songs_and_videos_are_found_in_activity_window_titles(client):
+    now = datetime.now(timezone.utc)
+    client.post("/activity", json={"app_name": "YouTube Music", "window_title": "YouTube Music - Higher Love",
+                                   "at": (now - timedelta(minutes=30)).isoformat()})
+    client.post("/activity", json={"app_name": "Mail", "window_title": "Inbox", "at": (now - timedelta(minutes=20)).isoformat()})
+    result = ask(client, "Did I listen to any songs on YouTube Music today?")
+    assert result["route"] == "content"
+    assert any(s["kind"] == "activity" and "Higher Love" in s["window_title"] for s in result["sources"])
+    assert "Higher Love" in result["answer"]
