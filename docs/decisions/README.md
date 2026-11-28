@@ -29,5 +29,7 @@ the link in both.
 - [0008: Encryption at rest and Keychain key handling](0008-encryption-at-rest.md)
 - [0009: Text source order: Accessibility first, Apple Vision OCR as the fallback](0009-text-source-order.md)
 - [0010: Change-aware recapture, and no LLM rewriting of captures](0010-change-aware-recapture-no-llm-rewriting.md)
+- [0011: Qwen3-4B-Instruct-2507 as the answer model](0011-answer-model.md)
+- [0012: The Recall pipeline: routing, grounding and abstention](0012-recall-pipeline.md)
 
 See also [the threat model](../threat-model.md).

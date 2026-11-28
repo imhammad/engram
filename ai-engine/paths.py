@@ -17,7 +17,8 @@ for _var in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_HUB_DISABLE_TELEMETRY
 
 ENGINE_DIR = Path(__file__).resolve().parent
 
-LLM_FILENAME = "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+# The answer model (ADR 0011). ENGRAM_LLM_FILE overrides it, for comparing models.
+LLM_FILENAME = os.environ.get("ENGRAM_LLM_FILE", "Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
 EMBEDDER_DIRNAME = "all-MiniLM-L6-v2"
 WHISPER_DIRNAME = "faster-whisper-base.en"
 

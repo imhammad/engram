@@ -224,6 +224,7 @@ export default function SettingsPage() {
       });
       await api("/activity", { method: "DELETE" });
       await api("/ledger", { method: "DELETE" });
+      await api("/recall/history", { method: "DELETE" });
       setMessage(
         `Deleted ${memData.deleted_count} memories, all activity history and the capture ledger.`,
       );

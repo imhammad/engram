@@ -62,6 +62,11 @@ def keyword_ranking(query: str, limit: int, since=None, until=None, app=None) ->
 
 
 def vector_ranking(embedding: list[float], limit: int, since=None, until=None, app=None) -> list[str]:
+    return [i for i, _ in vector_scores(embedding, limit, since, until, app)]
+
+
+def vector_scores(embedding: list[float], limit: int, since=None, until=None, app=None) -> list[tuple[str, float]]:
+    """Nearest traces as (id, cosine distance), closest first."""
     conn = connect()
     total = conn.execute("SELECT COUNT(*) FROM trace_vectors").fetchone()[0]
     if total == 0:
@@ -70,11 +75,11 @@ def vector_ranking(embedding: list[float], limit: int, since=None, until=None, a
     # With filters, look further down the neighbour list so enough survive them.
     k = min(total, limit * (20 if where else 4))
     rows = conn.execute(
-        "SELECT t.id FROM (SELECT rowid, distance FROM trace_vectors WHERE embedding MATCH ? AND k = ?) v "
+        "SELECT t.id, v.distance FROM (SELECT rowid, distance FROM trace_vectors WHERE embedding MATCH ? AND k = ?) v "
         f"JOIN traces t ON t.rowid = v.rowid WHERE 1=1{where} ORDER BY v.distance LIMIT ?",
         [sqlite_vec.serialize_float32(embedding), k, *params, limit],
     ).fetchall()
-    return [r[0] for r in rows]
+    return [(r[0], r[1]) for r in rows]
 
 
 def reciprocal_rank_fusion(*rankings: list[str], k: int = RRF_K) -> list[str]:
@@ -90,3 +95,18 @@ def hybrid_search(query: str, embedding: list[float], limit: int = 5, since=None
     keyword = keyword_ranking(query, depth, since, until, app)
     vector = vector_ranking(embedding, depth, since, until, app)
     return reciprocal_rank_fusion(keyword, vector)[:limit]
+
+
+def relevant_search(query: str, embedding: list[float], limit: int = 5, max_distance: float = 0.6,
+                    since=None, until=None, app=None) -> list[str]:
+    """Hybrid search that only returns traces with real evidence of relevance:
+    a keyword match on a meaningful query word, or a vector distance within
+    max_distance. Used by recall, where returning nothing is better than
+    returning something unrelated (ADR 0012)."""
+    depth = max(limit * 4, 20)
+    keyword = keyword_ranking(query, depth, since, until, app)
+    scored = vector_scores(embedding, depth, since, until, app)
+    close = [i for i, d in scored if d <= max_distance]
+    fused = reciprocal_rank_fusion(keyword, [i for i, _ in scored])
+    allowed = set(keyword) | set(close)
+    return [i for i in fused if i in allowed][:limit]

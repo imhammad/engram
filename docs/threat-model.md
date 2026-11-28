@@ -2,7 +2,7 @@
 
 This document describes what Engram stores, where it lives, who can reach it,
 what the macOS permissions it asks for allow, and what it does not try to
-defend against. It reflects the state after Phase 4 (smarter capture).
+defend against. It reflects the state after Phase 5 (recall).
 
 ## What Engram stores
 
@@ -18,6 +18,8 @@ Everything is kept under `~/Library/Application Support/dev.engram.app`:
     redacted title, trigger, outcome and reason.
   - `exclusion_rules`, `settings`, and the empty `episodes` and `days`
     tables for later phases.
+  - `recall_history`: questions asked in Recall and the answers given,
+    cleared from the Recall page or with "Delete everything".
 - `models/`: the three model files, installed once by `fetch_models.py`.
 - `backup-before-phase3-*/`: the pre-Phase-3 plain database and Chroma
   folder, moved there during the one-time import. **These are not
@@ -48,6 +50,10 @@ over stdin; it is never in argv, the environment or a log.
 
 These are heuristics. They reduce what is stored; they do not guarantee that
 nothing sensitive is ever captured from an ordinary window.
+
+Questions asked in Recall are answered by the local model on the Mac. The
+question, the memories used to answer it and the answer never leave the
+device, the same as everything else.
 
 ## Who can reach the data
 

@@ -10,8 +10,9 @@ which is where the desktop app looks. Pass --dest to install elsewhere, or
 --verify to check an existing install without downloading.
 
 Every file is pinned to a specific repository revision and SHA-256 hash. If a
-copy of the language model already exists in ai-engine/models (from earlier
-development), it is copied instead of downloaded again.
+model file already exists in ai-engine/models (from earlier development), it
+is copied instead of downloaded again. The earlier TinyLlama model is no
+longer used and is not installed.
 """
 
 import argparse
@@ -29,12 +30,13 @@ LEGACY_MODEL_DIR = ENGINE_DIR / "models"
 # Hugging Face repository, pinned revision, and {file: sha256}.
 MODELS = [
     {
-        "name": "TinyLlama 1.1B Chat (Q4_K_M)",
+        # The answer model for Recall (ADR 0011). Apache-2.0.
+        "name": "Qwen3-4B-Instruct-2507 (Q4_K_M)",
         "subdir": "",
-        "repo": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
-        "revision": "52e7645ba7c309695bec7ac98f4f005b139cf465",
+        "repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+        "revision": "a06e946bb6b655725eafa393f4a9745d460374c9",
         "files": {
-            "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf": "9fecc3b3cd76bba89d504f29b616eedf7da85b96540e490ca5824d3f7d2776a0",
+            "Qwen3-4B-Instruct-2507-Q4_K_M.gguf": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
         },
     },
     {

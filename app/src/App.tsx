@@ -6,8 +6,9 @@ import MemoriesPage from "./components/MemoriesPage";
 import DashboardPage from "./components/DashboardPage";
 import SettingsPage from "./components/SettingsPage";
 import LedgerPage from "./components/LedgerPage";
+import RecallPage from "./components/RecallPage";
 
-type Tab = "dashboard" | "memories" | "ledger" | "settings";
+type Tab = "recall" | "dashboard" | "memories" | "ledger" | "settings";
 
 type EngineStatus = {
   state: "starting" | "ready" | "failed";
@@ -74,7 +75,7 @@ function EngineStarting({ status }: { status: EngineStatus }) {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("memories");
+  const [activeTab, setActiveTab] = useState<Tab>("recall");
   const engine = useEngineStatus();
 
   const navItem = (tab: Tab, label: string) => (
@@ -97,6 +98,7 @@ function App() {
           Engram
         </h1>
         <nav className="flex flex-col gap-1">
+          {navItem("recall", "Recall")}
           {navItem("dashboard", "Dashboard")}
           {navItem("memories", "Memories")}
           {navItem("ledger", "Ledger")}
@@ -109,6 +111,7 @@ function App() {
           <EngineStarting status={engine} />
         ) : (
           <>
+            {activeTab === "recall" && <RecallPage />}
             {activeTab === "memories" && <MemoriesPage />}
             {activeTab === "dashboard" && <DashboardPage />}
             {activeTab === "ledger" && <LedgerPage />}

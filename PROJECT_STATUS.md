@@ -40,6 +40,13 @@ phased plan.
   connections, deterministic clean-up and no LLM rewriting after it was
   measured inventing content (ADR 0010); system dialogs ignored; URL,
   text source and trigger stored; "Capture now" made secondary.
+- Phase 5 (recall) is complete: a Recall page as the home screen;
+  deterministic local-time parsing; activity questions answered from
+  sessions by code, period summaries, and grounded content answers with
+  checked citations and abstention, streamed to the UI (ADR 0012);
+  Qwen3-4B-Instruct-2507 replaces TinyLlama after a comparison with
+  Phi-4-mini (ADR 0011); recall history in the encrypted store; a
+  30-question evaluation with 100% answer accuracy on the chosen model.
 
 Under the original plan, Phases 1-10 were completed (see README.md for full phase-by-phase details).
 Working local-first "second brain" app: native Tauri shell, local AI
@@ -58,7 +65,8 @@ Branch per feature → PR → merge → delete branch → sync local main.
 Conventional commit prefixes: feat/fix/chore/docs.
 
 ## Next planned phase
-Phase 5 of the new plan: recall.
+Phase 6 of the new plan: consolidation (episodes and day summaries)
+and forgetting (raw traces fade unless recalled or pinned).
 
 ## Known open items
 - OCR still picks up UI chrome within a scoped window; the quality
