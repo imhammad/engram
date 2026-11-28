@@ -138,8 +138,10 @@ class ScreenCaptureRequest(BaseModel):
     # Text the shell read through the Accessibility API, if any (ADR 0009).
     text: str | None = None
     # dwell: first capture after the dwell delay; recheck: periodic look at
-    # the same window, saved only if the content changed; manual: Capture now.
+    # the same window, saved only if the content changed; keep: the Keep
+    # shortcut, which also pins the memory so it never fades.
     trigger: str = "manual"
+    pin: bool = False
 
 
 class CaptureSettings(BaseModel):
@@ -322,8 +324,9 @@ def capture_screen(request: ScreenCaptureRequest = ScreenCaptureRequest()):
     title = redact(request.window_title)
     url = redact(request.url)
     trigger = {"auto": "dwell"}.get(request.trigger, request.trigger)
-    if trigger not in ("manual", "dwell", "recheck"):
+    if trigger not in ("manual", "dwell", "recheck", "keep"):
         trigger = "manual"
+    pin = request.pin or trigger == "keep"
 
     if is_system_process(app_name):
         return {"saved": False, "reason": "Not captured: system dialog."}
@@ -355,8 +358,15 @@ def capture_screen(request: ScreenCaptureRequest = ScreenCaptureRequest()):
     if text_change.near_duplicate(previous_text, text):
         log_capture(trigger, "duplicate", app_name, title, "almost the same as the last capture of this window",
                     memory_id=previous["id"], text_source=text_source, url=url)
+        if pin:  # Keep on something already saved: keep that memory
+            db.set_pinned(previous["id"], True)
+            return {"saved": False, "kept": True, "reason": "Already saved; now kept.", "memory": previous}
         return {"saved": False, "reason": "Already saved: nearly the same as the last capture.", "memory": previous}
-    return _save_capture(text, "screen_ocr", trigger, app_name, title, url, text_source)
+    result = _save_capture(text, "screen_ocr", trigger, app_name, title, url, text_source)
+    if pin and result.get("memory"):
+        db.set_pinned(result["memory"]["id"], True)
+        result["kept"] = True
+    return result
 
 
 @app.post("/capture/audio")
