@@ -35,3 +35,36 @@ export async function api<T = unknown>(
   }
   return (await res.json()) as T;
 }
+
+/** POST and read a newline-delimited JSON stream, one callback per event. */
+export async function apiStream<E = unknown>(
+  path: string,
+  body: unknown,
+  onEvent: (event: E) => void,
+): Promise<void> {
+  const { baseUrl, token } = await getConnection();
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { "X-Engram-Token": token, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`Engine request failed (${res.status})`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newline = buffer.indexOf("\n");
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (line) onEvent(JSON.parse(line) as E);
+      newline = buffer.indexOf("\n");
+    }
+  }
+  if (buffer.trim()) onEvent(JSON.parse(buffer) as E);
+}
