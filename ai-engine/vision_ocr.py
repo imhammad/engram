@@ -7,8 +7,48 @@ this Mac: see scripts/compare_ocr.py and the Phase 4 pull request.
 """
 
 import io
+from dataclasses import dataclass
 
 from PIL import Image
+
+# Two columns are separate when a vertical strip at least this wide (as a
+# share of the image width) has no text crossing it.
+MIN_COLUMN_GAP = 0.015
+
+
+@dataclass
+class Line:
+    top: float    # 0 at the top of the image, 1 at the bottom
+    left: float   # 0 at the left edge, 1 at the right
+    right: float
+    text: str
+
+
+def order_blocks(lines: list[Line]) -> list[list[Line]]:
+    """Put recognised lines in reading order, column by column.
+
+    Sorting every line by its height on the page interleaves a sidebar with
+    the main pane next to it ("Recents / Hello, how can I / Project notes /
+    help you today?"). Instead, find vertical gaps that no line crosses,
+    treat each strip between gaps as a column, and read each column top to
+    bottom, left column first. A line that spans a gap (a full-width title)
+    joins the strips into one column, so single-column pages read as before.
+    """
+    if not lines:
+        return []
+    spans = sorted((l.left, l.right) for l in lines)
+    columns: list[list[float]] = []
+    for left, right in spans:
+        if columns and left <= columns[-1][1] + MIN_COLUMN_GAP:
+            columns[-1][1] = max(columns[-1][1], right)
+        else:
+            columns.append([left, right])
+    blocks: list[list[Line]] = [[] for _ in columns]
+    for line in lines:
+        centre = (line.left + line.right) / 2
+        index = next((i for i, (l, r) in enumerate(columns) if l - 1e-9 <= centre <= r + 1e-9), 0)
+        blocks[index].append(line)
+    return [sorted(b, key=lambda l: (round(l.top, 3), l.left)) for b in blocks if b]
 
 
 def recognize(image: Image.Image) -> str:
@@ -34,7 +74,6 @@ def recognize(image: Image.Image) -> str:
         candidate = observation.topCandidates_(1)
         if candidate:
             box = observation.boundingBox()  # normalised, origin bottom-left
-            lines.append((1 - box.origin.y - box.size.height, box.origin.x, candidate[0].string()))
-    # Reading order: top to bottom, then left to right.
-    lines.sort(key=lambda item: (round(item[0], 2), item[1]))
-    return "\n".join(text for _, _, text in lines)
+            top = 1 - box.origin.y - box.size.height
+            lines.append(Line(top, box.origin.x, box.origin.x + box.size.width, candidate[0].string()))
+    return "\n\n".join("\n".join(line.text for line in block) for block in order_blocks(lines))
