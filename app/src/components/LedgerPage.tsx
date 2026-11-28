@@ -9,7 +9,7 @@ type Entry = {
   trigger: "manual" | "auto" | "dwell" | "changed";
   text_source?: string;
   url?: string;
-  outcome: "saved" | "dropped-noise" | "duplicate" | "excluded" | "failed";
+  outcome: "saved" | "dropped-noise" | "duplicate" | "excluded" | "failed" | "faded";
   reason: string | null;
   memory_id: string | null;
 };
@@ -18,6 +18,7 @@ const outcomeLabels: Record<Entry["outcome"], string> = {
   saved: "Saved",
   "dropped-noise": "Dropped, unreadable",
   duplicate: "Already saved",
+  faded: "Faded",
   excluded: "Not captured, excluded",
   failed: "Failed",
 };
@@ -26,6 +27,7 @@ const outcomeColors: Record<Entry["outcome"], string> = {
   saved: "text-accent",
   "dropped-noise": "text-ink-muted",
   duplicate: "text-ink-muted",
+  faded: "text-ink-muted",
   excluded: "text-ink-muted",
   failed: "text-red-600",
 };
@@ -35,6 +37,7 @@ const triggerLabels: Record<string, string> = {
   dwell: "Automatic",
   changed: "Automatic, content changed",
   manual: "Capture now",
+  forgetting: "Forgetting",
 };
 
 const sourceLabels: Record<string, string> = {

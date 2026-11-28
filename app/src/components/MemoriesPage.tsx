@@ -7,6 +7,7 @@ type Memory = {
   content: string;
   source: string;
   created_at: string;
+  pinned?: boolean;
 };
 
 export default function MemoriesPage() {
@@ -77,6 +78,11 @@ async function saveMemory() {
     setCapturing(false);
     setTimeout(() => setCaptureMessage(null), 5000);
   }
+}
+
+async function toggleKeep(m: Memory) {
+  await api(`/memories/${m.id}/keep`, { method: "POST", body: { pinned: !m.pinned } });
+  await loadMemories();
 }
 
 async function deleteMemory(id: string) {
@@ -249,12 +255,21 @@ async function captureAudio() {
               {new Date(m.created_at).toLocaleString()} · {m.source}
             </p>
           </div>
-          <button
-            onClick={() => deleteMemory(m.id)}
-            className="ml-2 text-xs text-ink-muted hover:text-red-600"
-          >
-            ✕
-          </button>
+          <div className="ml-2 flex shrink-0 items-center gap-3">
+            <button
+              onClick={() => toggleKeep(m)}
+              title={m.pinned ? "Kept: this memory will never fade" : "Keep this memory so it never fades"}
+              className={`text-xs ${m.pinned ? "font-medium text-accent" : "text-ink-muted hover:text-ink"}`}
+            >
+              {m.pinned ? "Kept" : "Keep"}
+            </button>
+            <button
+              onClick={() => deleteMemory(m.id)}
+              className="text-xs text-ink-muted hover:text-red-600"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       ))}
     </div>

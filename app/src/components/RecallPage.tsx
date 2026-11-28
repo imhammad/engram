@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, apiStream } from "../lib/api";
+import RecapCard from "./RecapCard";
 
 type SourceCard = {
   n: number;
@@ -9,6 +10,7 @@ type SourceCard = {
   url: string;
   created_at: string;
   snippet: string;
+  kind?: "memory" | "activity" | "episode";
 };
 
 type AppTime = { app_name: string; seconds: number };
@@ -80,8 +82,20 @@ function Answer({ text }: { text: string }) {
 function Source({ source }: { source: SourceCard }) {
   const [open, setOpen] = useState(false);
   const [full, setFull] = useState<string | null>(null);
+  const [kept, setKept] = useState(false);
+  const isMemory = (source.kind ?? "memory") === "memory";
+
+  async function keep(e: React.MouseEvent) {
+    e.stopPropagation();
+    await api(`/memories/${source.id}/keep`, { method: "POST", body: { pinned: !kept } });
+    setKept(!kept);
+  }
 
   async function toggle() {
+    if (!isMemory) {
+      setOpen(!open);
+      return;
+    }
     if (!open && full === null) {
       try {
         const memory = await api<{ content: string }>(`/memories/${source.id}`);
@@ -104,7 +118,9 @@ function Source({ source }: { source: SourceCard }) {
           {source.window_title || source.app_name}
         </span>
         <span className="block truncate text-xs text-ink-muted">
-          {source.app_name} · {when(source.created_at)}
+          {source.kind === "episode" ? "Episode" : source.kind === "activity" ? "Activity" : source.app_name}
+          {" · "}
+          {when(source.created_at)}
           {source.url && <> · {source.url}</>}
         </span>
         <span
@@ -112,9 +128,19 @@ function Source({ source }: { source: SourceCard }) {
             open ? "" : "line-clamp-2"
           }`}
         >
-          {open ? full : source.snippet}
+          {open && isMemory ? full : source.snippet}
         </span>
       </span>
+      {isMemory && (
+        <span
+          role="button"
+          onClick={keep}
+          title="Keep this memory so it never fades"
+          className={`shrink-0 self-start text-xs ${kept ? "font-medium text-accent" : "text-ink-muted hover:text-ink"}`}
+        >
+          {kept ? "Kept" : "Keep"}
+        </span>
+      )}
     </button>
   );
 }
@@ -206,6 +232,8 @@ export default function RecallPage() {
             {busy ? "Recalling..." : "Ask"}
           </button>
         </form>
+
+        {!asked && <RecapCard />}
 
         {!asked && (
           <div className="flex flex-wrap gap-2">
