@@ -556,7 +556,9 @@ def recap(day: str | None = None):
     """Yesterday (or a given day) as episodes, focused time, top apps and open loops."""
     from datetime import timedelta as _td
     tz = _local_tz()
-    target = day or (datetime.now(tz).date() - _td(days=1)).isoformat()
+    from timeparse import logical_today
+    # The day ends at 4 AM: at 00:30 on Sunday, "yesterday" is still Friday.
+    target = day or (logical_today(datetime.now(tz)) - _td(days=1)).isoformat()
     found = db.get_day(target)
     return {"day": target, "consolidated": found is not None, **(found or {}),
             "open_loops": db.get_open_loops("open", limit=8)}

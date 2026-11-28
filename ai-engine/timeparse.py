@@ -11,11 +11,20 @@ month / last month, weekday names ("on Tuesday", "last Friday"), day of
 month ("on the 25th", "November 25", "25 Nov"), "N minutes/hours/days ago",
 "in the last N hours/days", "past N days", "since 3pm", "between 2 and 4pm"
 (today), and plain times like "at 10am".
+
+The day starts at 4 AM, not midnight (DAY_START_HOUR). At 00:30 the user is
+still in their evening, so "today" still means the day that began the
+previous morning, "tonight" is the evening now ending, and "yesterday" is the
+day before that. Periods that shift this way carry a `note` saying so, which
+Recall puts in front of the answer.
 """
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, tzinfo
+from datetime import date, datetime, time, timedelta, tzinfo
+
+# Hours after midnight that still belong to the previous day.
+DAY_START_HOUR = 4
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august",
@@ -30,6 +39,7 @@ class Period:
     start: datetime
     end: datetime
     label: str  # human wording, e.g. "yesterday" or "Tuesday 25 November"
+    note: str | None = None  # said before the answer when the 4 AM day start applies
 
     def as_utc_iso(self) -> tuple[str, str]:
         from datetime import timezone
@@ -47,6 +57,28 @@ def _span(start: datetime, end: datetime, label: str) -> Period:
 def _whole_day(d: datetime, label: str) -> Period:
     s = _day(d)
     return Period(s, s + timedelta(days=1), label)
+
+
+def after_midnight(now: datetime) -> bool:
+    """True between midnight and DAY_START_HOUR, when the user's day hasn't ended."""
+    return now.hour < DAY_START_HOUR
+
+
+def logical_today(now: datetime) -> date:
+    """The user's day: before 4 AM it is still the previous calendar day."""
+    return (now - timedelta(hours=DAY_START_HOUR)).date()
+
+
+def _late_note(now: datetime, what: str) -> str | None:
+    if not after_midnight(now):
+        return None
+    return f"Since it's just after midnight, {what}."
+
+
+def today_period(now: datetime) -> Period:
+    """Today so far, counting the hours after midnight as part of it."""
+    start = _day(now - timedelta(hours=DAY_START_HOUR))
+    return Period(start, now, "today", _late_note(now, f"I'm counting all of {_fmt_day(start)}, up to now, as today"))
 
 
 def _number(token: str) -> int | None:
@@ -75,7 +107,8 @@ def _fmt_day(d: datetime) -> str:
 def parse_period(question: str, now: datetime) -> Period | None:
     """`now` must be timezone-aware, in the user's local time zone."""
     q = " " + question.lower().replace("’", "'") + " "
-    today = _day(now)
+    # Midnight of the user's day, which before 4 AM is still yesterday's date.
+    today = _day(now - timedelta(hours=DAY_START_HOUR))
 
     # Relative spans counted back from now.
     m = re.search(r"\b(?:in the |over the |during the )?(?:last|past) (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|twelve|couple of|few) (minute|hour|day|week)s?\b", q)
@@ -102,10 +135,14 @@ def parse_period(question: str, now: datetime) -> Period | None:
 
     # Times of day.
     if re.search(r"\blast night\b", q):
+        if after_midnight(now):
+            # Asked at 1 AM, "last night" is the evening that is still going on.
+            return Period(today.replace(hour=18), now, "last night", _late_note(now, "last night means this evening"))
         y = today - timedelta(days=1)
         return _span(y.replace(hour=18), today.replace(hour=6), "last night")
     if re.search(r"\btonight\b|\bthis evening\b", q):
-        return _span(today.replace(hour=18), today + timedelta(days=1), "this evening")
+        return Period(today.replace(hour=18), min(today + timedelta(days=1, hours=DAY_START_HOUR), now) if after_midnight(now) else today + timedelta(days=1),
+                      "this evening", _late_note(now, f"this evening means {_fmt_day(today)} evening, up to now"))
     if re.search(r"\bthis morning\b", q):
         return _span(today.replace(hour=5), today.replace(hour=12), "this morning")
     if re.search(r"\bthis afternoon\b", q):
@@ -135,9 +172,12 @@ def parse_period(question: str, now: datetime) -> Period | None:
     if re.search(r"\bday before yesterday\b", q):
         return _whole_day(today - timedelta(days=2), "the day before yesterday")
     if re.search(r"\byesterday\b", q):
-        return _whole_day(today - timedelta(days=1), "yesterday")
+        y = today - timedelta(days=1)
+        p = _whole_day(y, "yesterday")
+        note = _late_note(now, f"yesterday means {_fmt_day(y)} (today still counts as {_fmt_day(today)})")
+        return Period(p.start, p.end, p.label, note)
     if re.search(r"\btoday\b|\bso far\b", q):
-        return _span(today, now, "today")
+        return today_period(now)
 
     # Weeks and months.
     if re.search(r"\blast week\b", q):

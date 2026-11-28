@@ -70,6 +70,18 @@ LaunchAgent) and is off unless the user turns it on.
 macOS needs Tauri's `macos-private-api` feature. That rules out the Mac App
 Store, which Engram does not target.
 
+**The day ends at 4 AM.** The first live test, at 00:08, answered "what did
+I do today?" with three minutes of activity, because the calendar day had
+just begun. Engram now treats the hours before 4 AM as part of the previous
+day (`timeparse.DAY_START_HOUR`): before 4 AM, "today" covers the day that
+began the previous morning, "tonight" and "last night" mean the evening
+still going on, "yesterday" is the day before that, the morning recap shows
+that day, and consolidation leaves the evening alone until 4 AM. When
+this shifts what a word means, the answer opens with one sentence saying so
+("Since it's just after midnight, I'm counting all of Saturday 28 November,
+up to now, as today."). The hour is a constant for now; it can become a
+setting.
+
 **Fonts.** The interface loaded IBM Plex from Google Fonts at runtime,
 which broke the no-network promise for the webview (the engine was
 already network-zero). The fonts are now bundled with `@fontsource`.

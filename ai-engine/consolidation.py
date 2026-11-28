@@ -246,7 +246,9 @@ def consolidate_day(day: date, llm, embed, tz, force: bool = False) -> dict | No
 
 def pending_days(tz, today: date | None = None, limit: int = 14) -> list[date]:
     """Past local days that have activity or memories but no consolidation yet."""
-    today = today or datetime.now(tz).date()
+    # The user's day ends at 4 AM, so just after midnight yesterday is not finished yet.
+    from timeparse import logical_today
+    today = today or logical_today(datetime.now(tz))
     earliest = db.earliest_activity_or_trace()
     if not earliest:
         return []
