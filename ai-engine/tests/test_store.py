@@ -33,7 +33,7 @@ def at(minutes: float) -> str:
 
 def test_migrations_from_empty_create_every_table(fresh_store):
     conn = fresh_store.connect()
-    assert fresh_store.schema_version(conn) == 2
+    assert fresh_store.schema_version(conn) == 3
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
     for table in ("traces", "traces_fts", "trace_vectors", "episodes", "episode_traces", "days",
                   "day_episodes", "activity_sessions", "capture_log", "exclusion_rules", "settings",
@@ -44,7 +44,7 @@ def test_migrations_from_empty_create_every_table(fresh_store):
 def test_migrations_are_applied_once(fresh_store):
     conn = fresh_store.connect()
     assert fresh_store.migrate(conn) == []
-    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 3
 
 
 # --- encryption -----------------------------------------------------------
@@ -312,3 +312,12 @@ def test_stopwords_do_not_drive_keyword_matches(fresh_store):
     assert fts_query("the of and") is None
     db.insert_trace("the it is was and the of in on at the is the", unit((0, 1.0)))
     assert keyword_ranking("when is the brain talk", 5) == []
+
+
+def test_sessions_left_open_by_a_crash_are_capped(fresh_store):
+    import db
+
+    db.record_switch("Claude", "chat", at(0))
+    assert db.close_interrupted_sessions() == 1
+    s = db.get_recent_activity(1)[0]
+    assert s["end_reason"] == "interrupted" and s["duration_seconds"] == 300

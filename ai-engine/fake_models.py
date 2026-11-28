@@ -35,8 +35,23 @@ def embed(text: str) -> list[float]:
 
 
 class FakeLlama:
+    """Answers by quoting the first sentence of source [1] and citing it, or
+    says it found nothing when there are no sources. Streams like llama.cpp."""
+
     def __call__(self, prompt: str, **_kwargs) -> dict:
         return {"choices": [{"text": f"(fake model) {prompt[:40]}"}]}
+
+    def create_chat_completion(self, messages, stream=False, **_kwargs):
+        user = messages[-1]["content"]
+        m = re.search(r"\[1\] \([^)]*\)\n(.+)", user)
+        if m:
+            first = re.split(r"(?<=[.!?])\s", m.group(1).strip())[0].rstrip(".")
+            text = f"{first} [1]."
+        else:
+            text = "I couldn't find that in your memories."
+        if not stream:
+            return {"choices": [{"message": {"content": text}}]}
+        return iter([{"choices": [{"delta": {"content": w + " "}}]} for w in text.split(" ")])
 
 
 def ocr_text(_region: dict | None) -> str:

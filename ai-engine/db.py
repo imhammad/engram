@@ -4,7 +4,7 @@ Memories are "traces" in the schema; the API keeps calling them memories.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import sqlite_vec
 
@@ -203,6 +203,28 @@ def close_open_session(reason: str, ended_at: str | None = None) -> dict | None:
     return {**dict(row), "ended_at": end, "duration_seconds": duration, "end_reason": reason}
 
 
+# A session still open when the engine starts was cut off by a crash or a
+# forced quit; the app stopped reporting at some unknown point. It is closed
+# at most this long after it began, rather than stretching across the hours
+# Engram was not running.
+INTERRUPTED_SESSION_MAX_SECONDS = 5 * 60
+
+
+def close_interrupted_sessions() -> int:
+    conn = connect()
+    rows = conn.execute("SELECT id, started_at FROM activity_sessions WHERE ended_at IS NULL").fetchall()
+    now = now_iso()
+    with conn:
+        for r in rows:
+            cap = (datetime.fromisoformat(r["started_at"]) + timedelta(seconds=INTERRUPTED_SESSION_MAX_SECONDS)).isoformat()
+            end = min(cap, now)
+            conn.execute(
+                "UPDATE activity_sessions SET ended_at = ?, duration_seconds = ?, end_reason = 'interrupted' WHERE id = ?",
+                (end, _seconds_between(r["started_at"], end), r["id"]),
+            )
+    return len(rows)
+
+
 def record_switch(app_name: str, window_title: str, at: str | None = None) -> dict:
     """Close the current session and open one for the new window."""
     start = at or now_iso()
@@ -351,3 +373,74 @@ def delete_exclusion_rule(rule_id: str) -> bool:
 def init_db() -> None:
     """Kept for callers of the old API; the schema is applied by store.configure()."""
     store.connect()
+
+
+# --- recall helpers -------------------------------------------------------
+
+def known_app_names() -> list[str]:
+    """Every app that appears in activity or memories, for matching names in questions."""
+    conn = connect()
+    names = {r[0] for r in conn.execute("SELECT DISTINCT app_name FROM activity_sessions")}
+    names |= {r[0] for r in conn.execute("SELECT DISTINCT app_name FROM traces WHERE app_name != ''")}
+    return sorted(n for n in names if n)
+
+
+def sessions_between(since: str, until: str, app_name: str | None = None) -> list[dict]:
+    """Sessions overlapping [since, until), oldest first, open sessions counted to until."""
+    params: list = [until, until, since, until]
+    app_clause = ""
+    if app_name:
+        app_clause = " AND app_name = ?"
+        params.append(app_name)
+    rows = connect().execute(
+        "SELECT *, COALESCE(ended_at, ?) AS effective_end FROM activity_sessions "
+        f"WHERE COALESCE(ended_at, ?) > ? AND started_at < ?{app_clause} ORDER BY started_at",
+        params,
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def traces_between(since: str, until: str, limit: int = 40) -> list[dict]:
+    rows = connect().execute(
+        "SELECT * FROM traces WHERE created_at >= ? AND created_at < ? ORDER BY created_at",
+        (since, until),
+    ).fetchall()
+    return [_memory(r) for r in rows][:limit] if len(rows) <= limit else [_memory(r) for r in rows[-limit:]]
+
+
+def touch_recalled(ids: list[str]) -> None:
+    """Remember that these traces were used in an answer (for forgetting, Phase 6)."""
+    if not ids:
+        return
+    conn = connect()
+    with conn:
+        conn.executemany("UPDATE traces SET last_recalled_at = ? WHERE id = ?", [(now_iso(), i) for i in ids])
+
+
+# --- recall history -------------------------------------------------------
+
+def add_recall(question: str, answer: str, route: str, sources: list[dict]) -> dict:
+    import json as _json
+
+    entry = {"id": str(uuid.uuid4()), "created_at": now_iso(), "question": question, "answer": answer,
+             "route": route, "sources": _json.dumps(sources)}
+    conn = connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO recall_history (id, created_at, question, answer, route, sources) "
+            "VALUES (:id, :created_at, :question, :answer, :route, :sources)", entry)
+    return entry
+
+
+def get_recall_history(limit: int = 30) -> list[dict]:
+    import json as _json
+
+    rows = connect().execute("SELECT * FROM recall_history ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    return [{**dict(r), "sources": _json.loads(r["sources"] or "[]")} for r in rows]
+
+
+def clear_recall_history() -> int:
+    conn = connect()
+    with conn:
+        cur = conn.execute("DELETE FROM recall_history")
+    return cur.rowcount

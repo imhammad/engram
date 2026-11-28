@@ -16,12 +16,14 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 import fake_models
 from audio_capture import record_and_transcribe
+import db
 import legacy_import
+import recall
 import store
 from db import (
     add_exclusion_rule, close_open_session, delete_all_activity,
@@ -92,9 +94,14 @@ else:
     MODEL_PATH = str(paths.llm_path())
     print(f"Loading local model from: {MODEL_PATH}")
     # n_gpu_layers=-1 offloads every layer to the GPU (Metal on Apple Silicon).
-    llm = Llama(model_path=MODEL_PATH, n_ctx=2048, n_gpu_layers=-1, verbose=False)
+    # 4096 tokens holds the recall prompt (about 6,000 characters of sources)
+    # plus the answer (ADR 0012).
+    llm = Llama(model_path=MODEL_PATH, n_ctx=4096, n_gpu_layers=-1, verbose=False)
     print("Model loaded successfully.")
 
+
+# Sessions left open by a crash or forced quit must not run on for hours.
+db.close_interrupted_sessions()
 
 # First start on the Phase 3 store: bring over the old plain database.
 legacy_import.import_legacy(paths.get_data_dir(), embed_text)
@@ -248,6 +255,14 @@ def create_memory(memory: MemoryCreate):
     saved, created = insert_trace(memory.content, embedding)
     related = find_related_memory(saved, embedding) if created else None
     return {"memory": saved, "related_memory": related, "duplicate": not created}
+
+
+@app.get("/memories/{memory_id}")
+def get_memory(memory_id: str):
+    found = get_memories_by_ids([memory_id]).get(memory_id)
+    if not found:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    return found
 
 
 @app.delete("/memories/{memory_id}")
@@ -441,6 +456,7 @@ def export_all_data():
         "activity_sessions": get_recent_activity(limit=100000),
         "capture_log": get_capture_log(limit=100000),
         "exclusion_rules": user_rules(),
+        "recall_history": db.get_recall_history(limit=100000),
     }
 
 
@@ -464,10 +480,46 @@ def storage_info():
     }
 
 
-@app.get("/generate")
-def generate(prompt: str):
-    output = llm(prompt, max_tokens=200, stop=["</s>"])
-    return {"response": output["choices"][0]["text"].strip()}
+class RecallQuestion(BaseModel):
+    question: str
+    stream: bool = True
+    save: bool = True
+
+
+@app.post("/recall")
+def recall_endpoint(body: RecallQuestion):
+    """Ask Engram. Streams newline-delimited JSON events (meta, token..., done)
+    unless stream is false, in which case only the final event is returned."""
+    question = body.question.strip()[:500]
+    if not question:
+        return JSONResponse({"detail": "question is empty"}, status_code=422)
+
+    def events():
+        final = None
+        for event in recall.recall(question, llm, embed_text):
+            if event["type"] == "done":
+                final = event
+            yield event
+        if final is not None and body.save:
+            db.add_recall(question, final["answer"], final["route"], final.get("sources", []))
+
+    if not body.stream:
+        last = None
+        for event in events():
+            last = event
+        return last
+
+    return StreamingResponse((json.dumps(e) + "\n" for e in events()), media_type="application/x-ndjson")
+
+
+@app.get("/recall/history")
+def recall_history(limit: int = 30):
+    return db.get_recall_history(limit)
+
+
+@app.delete("/recall/history")
+def clear_recall_history():
+    return {"deleted_count": db.clear_recall_history()}
 
 
 def watch_parent() -> None:
@@ -493,8 +545,13 @@ def watch_parent() -> None:
             try:
                 os.kill(pid, 0)
             except (ProcessLookupError, PermissionError):
-                # Gone, or the id now belongs to another user's process.
+                # Gone, or the id now belongs to another user's process. End the
+                # open activity session now, while the time is still known.
                 print(f"Engram app (pid {pid}) is gone, shutting down.")
+                try:
+                    close_open_session("quit")
+                except Exception:
+                    pass
                 os.kill(os.getpid(), signal.SIGTERM)
                 return
 
