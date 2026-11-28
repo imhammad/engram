@@ -306,7 +306,7 @@ def test_search_filters_through_the_api(engine):
 def test_storage_endpoint_reports_encryption(engine):
     _, client = engine
     info = client.get("/storage").json()
-    assert info["encrypted"] is True and info["schema_version"] == 3
+    assert info["encrypted"] is True and info["schema_version"] == 4
 
 
 def test_activity_stop_accepts_seconds_ago(engine):

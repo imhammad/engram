@@ -42,7 +42,20 @@ class FakeLlama:
         return {"choices": [{"text": f"(fake model) {prompt[:40]}"}]}
 
     def create_chat_completion(self, messages, stream=False, **_kwargs):
-        user = messages[-1]["content"]
+        system, user = messages[0]["content"], messages[-1]["content"]
+        if "yes or no" in system:
+            yes = re.search(r"\btodo\b|need to|remind me|don't forget|by (monday|friday)|deadline|action item", user, re.I)
+            return {"choices": [{"message": {"content": "yes" if yes else "no"}}]}
+        if "TITLE:" in system:
+            m = re.search(r"\[1\] \(([^)]*)\)\n(.+)", user)
+            where = m.group(1).split("; ")[-1].split(" · ")[-1] if m else "Work"
+            first = re.split(r"(?<=[.!?])\s", m.group(2).strip())[0].rstrip(".") if m else "Worked"
+            text = f"TITLE: {' '.join(where.split()[:6])}\nSUMMARY: {first} [1]."
+            return {"choices": [{"message": {"content": text}}]}
+        if "episodes" in system:
+            m = re.search(r"\[1\] (.+?) \(", user)
+            text = f"Worked on {m.group(1)} [1]." if m else "I couldn't find that in your memories."
+            return {"choices": [{"message": {"content": text}}]}
         m = re.search(r"\[1\] \([^)]*\)\n(.+)", user)
         if m:
             first = re.split(r"(?<=[.!?])\s", m.group(1).strip())[0].rstrip(".")

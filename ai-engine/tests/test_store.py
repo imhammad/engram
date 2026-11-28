@@ -33,7 +33,7 @@ def at(minutes: float) -> str:
 
 def test_migrations_from_empty_create_every_table(fresh_store):
     conn = fresh_store.connect()
-    assert fresh_store.schema_version(conn) == 3
+    assert fresh_store.schema_version(conn) == 4
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
     for table in ("traces", "traces_fts", "trace_vectors", "episodes", "episode_traces", "days",
                   "day_episodes", "activity_sessions", "capture_log", "exclusion_rules", "settings",
@@ -44,7 +44,7 @@ def test_migrations_from_empty_create_every_table(fresh_store):
 def test_migrations_are_applied_once(fresh_store):
     conn = fresh_store.connect()
     assert fresh_store.migrate(conn) == []
-    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 3
+    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 4
 
 
 # --- encryption -----------------------------------------------------------
