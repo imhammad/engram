@@ -78,6 +78,17 @@ function App() {
   const [activeTab, setActiveTab] = useState<Tab>("recall");
   const engine = useEngineStatus();
 
+  // The tray and the quick panel can open a page here ("settings", "recall", ...).
+  useEffect(() => {
+    const off = listen<string>("navigate", (e) => {
+      const tabs: Tab[] = ["recall", "dashboard", "memories", "ledger", "settings"];
+      if (tabs.includes(e.payload as Tab)) setActiveTab(e.payload as Tab);
+    });
+    return () => {
+      off.then((f) => f());
+    };
+  }, []);
+
   const navItem = (tab: Tab, label: string) => (
     <span
       onClick={() => setActiveTab(tab)}

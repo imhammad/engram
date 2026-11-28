@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { api } from "../lib/api";
 import ExclusionsSection from "./ExclusionsSection";
 import MemoryLifecycleSection from "./MemoryLifecycleSection";
+import PresenceSection from "./PresenceSection";
 
 
 type PermissionState = "granted" | "denied" | "unsupported";
@@ -239,6 +240,8 @@ export default function SettingsPage() {
   return (
     <div className="flex h-full w-full flex-col gap-6 overflow-y-auto p-8">
       <PermissionsSection />
+
+      <PresenceSection />
 
       <MemoryLifecycleSection />
 

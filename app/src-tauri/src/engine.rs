@@ -263,11 +263,15 @@ pub fn notify_quit(app: &AppHandle) {
         return;
     }
     if let Some(req) = request(app, reqwest::Method::POST, "/activity/stop") {
-        let send = req
-            .timeout(Duration::from_secs(1))
-            .json(&serde_json::json!({ "reason": "quit" }))
-            .send();
-        let _ = tauri::async_runtime::block_on(send);
+        // Build the request inside the runtime: with a timeout, reqwest starts
+        // a Tokio timer as soon as send() is called, which panics on the main
+        // thread outside a runtime ("no reactor running") when quitting.
+        let _ = tauri::async_runtime::block_on(async move {
+            req.timeout(Duration::from_secs(1))
+                .json(&serde_json::json!({ "reason": "quit" }))
+                .send()
+                .await
+        });
     }
 }
 

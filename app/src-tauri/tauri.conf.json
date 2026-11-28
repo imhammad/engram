@@ -11,24 +11,14 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
         "title": "Engram",
         "width": 800,
         "height": 600
-      },
-      {
-      "label": "popup",
-      "title": "Engram",
-      "width": 340,
-      "height": 100,
-      "decorations": false,
-      "alwaysOnTop": true,
-      "skipTaskbar": true,
-      "visible": false,
-      "url": "popup.html"
-    }
+      }
     ],
     "security": {
       "csp": null

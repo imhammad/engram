@@ -9,10 +9,9 @@ laptop — and helps you query your own working memory using local AI.
 ## Current status
 
 Engram now targets macOS on Apple Silicon. Under the new phased plan,
-Phases 0 to 6 (cleanup, run on macOS, trust baseline, memory store,
-smarter capture, recall, consolidation and forgetting) are complete;
-Phase 7 (the presence: menu-bar mode, a floating mark, a global hotkey and
-a Keep shortcut) is next. See PROJECT_STATUS.md for
+Phases 0 to 7 (cleanup, run on macOS, trust baseline, memory store,
+smarter capture, recall, consolidation and forgetting, the presence) are
+complete; Phase 8 (proof: measuring that Engram helps) is next. See PROJECT_STATUS.md for
 details and docs/decisions/ for the architecture decision records.
 The phase sections below describe the original build.
 
@@ -217,6 +216,26 @@ and is worth remembering for any future additional windows.
   surface a popup notification.
 - No sound/animation on popup appearance, currently silent, which
   may be too subtle for some users to notice.
+
+## Everyday use
+
+Engram lives in the menu bar and in a small floating mark, so you rarely
+need its window (ADR 0015).
+
+| Shortcut | What it does |
+| --- | --- |
+| Option-Space | Opens the ask bar over any app. Return answers from your memories; Cmd-Return saves what you typed as a note; Escape closes it. |
+| Option-Shift-K | Keep: captures the window in front now and keeps it, so it never fades. The mark confirms. |
+
+- **The mark** floats above your windows, on every Space and over
+  full-screen apps. Click it to ask; drag it to move it. It pulses gently
+  while it captures, glows when something you just saw connects to an
+  older memory, and dims when capture is paused.
+- **The menu bar item** has Open Engram, Ask, Pause or Resume capture,
+  Settings and Quit.
+- **Settings > Everyday use** changes both shortcuts (press the new keys),
+  hides the mark, brings back the Dock icon, and turns on Open at login,
+  which is off until you choose it.
 
 ## What leaves your Mac
 

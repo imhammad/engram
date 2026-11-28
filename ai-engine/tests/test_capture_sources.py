@@ -160,3 +160,14 @@ def test_cleanup_drops_lines_repeated_across_other_windows():
 
 def test_ocr_gate_is_still_strict():
     assert noise_reason("@ © ® 8 Bie O's AIM & x + +> eaiA 2? BO qq ww ee") is not None
+
+
+def test_keep_saves_and_pins_and_keeps_an_existing_capture(client):
+    first = capture(client, text=ARTICLE, trigger="keep")
+    assert first["saved"] is True and first["kept"] is True
+    assert client.get(f"/memories/{first['memory']['id']}").json()["pinned"] is True
+    other = capture(client, window_title="Other", text=NEXT_SECTION, trigger="dwell")
+    again = capture(client, window_title="Other", text=NEXT_SECTION + " 3 new", trigger="keep")
+    assert again["kept"] is True and again["memory"]["id"] == other["memory"]["id"]
+    assert client.get(f"/memories/{other['memory']['id']}").json()["pinned"] is True
+    assert client.get("/ledger").json()[-1]["trigger"] == "keep"

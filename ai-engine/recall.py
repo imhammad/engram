@@ -29,7 +29,7 @@ from typing import Callable, Iterator
 
 import db
 from search import relevant_search
-from timeparse import Period, parse_period
+from timeparse import Period, parse_period, today_period
 
 NOT_FOUND = "I couldn't find that in your memories."
 MAX_SOURCES = 5
@@ -384,7 +384,24 @@ Event = dict
 def recall(question: str, llm, embed: Callable[[str], list[float]], tz=None, now: datetime | None = None) -> Iterator[Event]:
     """Answer a question as a stream of events:
     {"type": "meta", ...}, then {"type": "token", "text": ...} while the
-    model writes, then {"type": "done", "answer": ..., "sources": [...], ...}."""
+    model writes, then {"type": "done", "answer": ..., "sources": [...], ...}.
+
+    When the 4 AM day start changed what "today" or "yesterday" means
+    (timeparse.DAY_START_HOUR), the answer opens with a sentence saying so."""
+    note = None
+    for event in _recall(question, llm, embed, tz, now):
+        if event["type"] == "meta":
+            note = event.pop("note", None)
+            yield event
+            if note:
+                yield {"type": "token", "text": note + " "}
+        elif event["type"] == "done" and note:
+            yield {**event, "answer": f"{note} {event['answer']}"}
+        else:
+            yield event
+
+
+def _recall(question: str, llm, embed: Callable[[str], list[float]], tz=None, now: datetime | None = None) -> Iterator[Event]:
     tz = tz or datetime.now().astimezone().tzinfo
     now = now or datetime.now(tz)
     period = parse_period(question, now)
@@ -398,14 +415,15 @@ def recall(question: str, llm, embed: Callable[[str], list[float]], tz=None, now
         return
 
     if route == "activity":
-        result = answer_activity(question, period or Period(now.replace(hour=0, minute=0, second=0, microsecond=0), now, "today"), app, tz)
-        yield {"type": "meta", "route": route, "period": (period.label if period else "today"), "sources": []}
+        period = period or today_period(now)
+        result = answer_activity(question, period, app, tz)
+        yield {"type": "meta", "route": route, "period": period.label, "sources": [], "note": period.note}
         yield {"type": "done", "route": route, "answer": result["answer"], "breakdown": result["breakdown"],
                "sources": [], "dropped_sentences": 0}
         return
 
     if route == "summary":
-        period = period or Period(now.replace(hour=0, minute=0, second=0, microsecond=0), now, "today")
+        period = period or today_period(now)
         day = _whole_day(period)
         stored = db.get_day(day) if day else None
         if stored and stored["summary"]:
@@ -414,7 +432,8 @@ def recall(question: str, llm, embed: Callable[[str], list[float]], tz=None, now
             cards = [episode_card(i, e, tz) for i, e in enumerate(stored["episodes"], 1)]
             lead = activity["answer"] if activity["breakdown"] else ""
             cited = {int(n) for n in _CITE.findall(stored["summary"])}
-            yield {"type": "meta", "route": route, "period": period.label, "sources": cards, "breakdown": activity["breakdown"]}
+            yield {"type": "meta", "route": route, "period": period.label, "sources": cards, "breakdown": activity["breakdown"],
+                   "note": period.note}
             yield {"type": "done", "route": route, "answer": " ".join(x for x in (lead, stored["summary"]) if x),
                    "breakdown": activity["breakdown"], "sources": [c for c in cards if c["n"] in cited] or cards,
                    "dropped_sentences": 0}
@@ -424,7 +443,7 @@ def recall(question: str, llm, embed: Callable[[str], list[float]], tz=None, now
         memories = _pick_summary_traces(db.traces_between(since, until, limit=200))
         sources = build_sources(memories, question)
         yield {"type": "meta", "route": route, "period": period.label, "sources": [s.card() for s in sources],
-               "breakdown": activity["breakdown"]}
+               "breakdown": activity["breakdown"], "note": period.note}
         lead = activity["answer"] if activity["breakdown"] else ""
         if not sources:
             final = (lead + " " if lead else "") + f"I have no saved memories {when(period)} to summarise."
@@ -465,7 +484,7 @@ def recall(question: str, llm, embed: Callable[[str], list[float]], tz=None, now
         sources.append(Source(len(sources) + 1, item["id"], item["app_name"], item["window_title"], "",
                               item["started_at"], item["snippet"], kind="activity"))
     yield {"type": "meta", "route": route, "period": period.label if period else None,
-           "sources": [s.card() for s in sources]}
+           "sources": [s.card() for s in sources], "note": period.note if period else None}
     if not sources:
         yield {"type": "done", "route": route, "answer": NOT_FOUND, "sources": [], "dropped_sentences": 0}
         return

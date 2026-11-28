@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from timeparse import parse_period
+from timeparse import logical_today, parse_period, today_period
 
 # Saturday 28 November 2026, 14:30, Malaysia time (UTC+8).
 MYT = timezone(timedelta(hours=8))
@@ -106,8 +106,47 @@ def test_period_labels_and_utc():
 
 
 def test_respects_the_time_zone():
-    utc_now = datetime(2026, 11, 28, 1, 0, tzinfo=timezone.utc)  # 09:00 in Malaysia
+    utc_now = datetime(2026, 11, 28, 6, 0, tzinfo=timezone.utc)  # 14:00 in Malaysia
     p = parse_period("yesterday", utc_now.astimezone(MYT))
     assert p.start == at(27)
     p_utc = parse_period("yesterday", utc_now)
     assert p_utc.start == datetime(2026, 11, 27, tzinfo=timezone.utc)
+
+
+# --- the day starts at 4 AM ---------------------------------------------------
+
+# Sunday 29 November, 00:08: the user is still in Saturday evening.
+LATE = datetime(2026, 11, 29, 0, 8, tzinfo=MYT)
+
+
+def test_today_just_after_midnight_includes_the_evening():
+    p = parse_period("what did I do today?", LATE)
+    assert (p.start, p.end) == (at(28), LATE)
+    assert p.note == "Since it's just after midnight, I'm counting all of Saturday 28 November, up to now, as today."
+
+
+def test_tonight_and_last_night_just_after_midnight_mean_this_evening():
+    for q in ("what was I doing tonight?", "what did I read last night?"):
+        p = parse_period(q, LATE)
+        assert (p.start, p.end) == (at(28, 18), LATE), q
+        assert p.note and "just after midnight" in p.note
+
+
+def test_yesterday_just_after_midnight_is_the_day_before():
+    p = parse_period("what did I do yesterday?", LATE)
+    assert (p.start, p.end) == (at(27), at(28))
+    assert "Friday 27 November" in p.note
+
+
+def test_after_four_the_new_day_has_begun():
+    morning = datetime(2026, 11, 29, 4, 30, tzinfo=MYT)
+    p = parse_period("today", morning)
+    assert (p.start, p.end) == (at(29), morning) and p.note is None
+    assert parse_period("yesterday", morning).start == at(28)
+    assert logical_today(morning).day == 29 and logical_today(LATE).day == 28
+
+
+def test_daytime_periods_carry_no_note():
+    for q in ("today", "yesterday", "tonight", "last night", "on Tuesday"):
+        assert parse_period(q, NOW).note is None, q
+    assert today_period(NOW).note is None

@@ -149,7 +149,7 @@ def test_summary_combines_activity_and_cited_memories(client):
     seed(client)
     result = ask(client, "What did I work on today?")
     assert result["route"] == "summary"
-    assert result["answer"].startswith("You were active for")
+    assert "You were active for" in result["answer"]  # after a midnight note, if run before 4 AM
     assert "[" in result["answer"] and result["sources"]
 
 
@@ -202,3 +202,20 @@ def test_songs_and_videos_are_found_in_activity_window_titles(client):
     assert result["route"] == "content"
     assert any(s["kind"] == "activity" and "Higher Love" in s["window_title"] for s in result["sources"])
     assert "Higher Love" in result["answer"]
+
+
+def test_just_after_midnight_today_includes_the_evening_and_says_so(fresh_store):
+    import db
+    import recall as rc
+
+    myt = timezone(timedelta(hours=8))
+    late = datetime(2026, 11, 29, 0, 8, tzinfo=myt)
+    # An hour in Chrome on Saturday evening; asked at 00:08 on Sunday.
+    start = datetime(2026, 11, 28, 22, 0, tzinfo=myt).astimezone(timezone.utc)
+    db.insert_session("Google Chrome", "Docs", start.isoformat(), (start + timedelta(hours=1)).isoformat(), "switch")
+    events = list(rc.recall("how long was I in Chrome today?", None, None, tz=myt, now=late))
+    note = "Since it's just after midnight, I'm counting all of Saturday 28 November, up to now, as today."
+    assert "note" not in events[0]
+    assert events[1] == {"type": "token", "text": note + " "}
+    assert events[-1]["answer"].startswith(note)
+    assert "1 hour in Google Chrome" in events[-1]["answer"]
