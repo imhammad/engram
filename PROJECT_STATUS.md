@@ -47,6 +47,14 @@ phased plan.
   Qwen3-4B-Instruct-2507 replaces TinyLlama after a comparison with
   Phi-4-mini (ADR 0011); recall history in the encrypted store; a
   30-question evaluation with 100% answer accuracy on the chosen model.
+- Phase 6 (consolidation and forgetting) is complete: finished days are
+  grouped into episodes and summarised with cited sources, then
+  summarised as a day (ADR 0013), at startup, when idle on power, or on
+  demand; Recall uses day summaries and episodes; a morning recap card;
+  open loops found by rules and confirmed yes/no by the model;
+  forgetting by design with Never as the default, a preview before it
+  is turned on, and Keep and recall-refresh protection (ADR 0014); small
+  talk and activity window titles handled in Recall.
 
 Under the original plan, Phases 1-10 were completed (see README.md for full phase-by-phase details).
 Working local-first "second brain" app: native Tauri shell, local AI
@@ -65,8 +73,8 @@ Branch per feature → PR → merge → delete branch → sync local main.
 Conventional commit prefixes: feat/fix/chore/docs.
 
 ## Next planned phase
-Phase 6 of the new plan: consolidation (episodes and day summaries)
-and forgetting (raw traces fade unless recalled or pinned).
+Phase 7 of the new plan: the presence (menu-bar mode, a floating mark,
+a global hotkey, a Keep shortcut).
 
 ## Known open items
 - OCR still picks up UI chrome within a scoped window; the quality

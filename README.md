@@ -9,9 +9,10 @@ laptop — and helps you query your own working memory using local AI.
 ## Current status
 
 Engram now targets macOS on Apple Silicon. Under the new phased plan,
-Phases 0 to 5 (cleanup, run on macOS, trust baseline, memory store,
-smarter capture, recall) are complete; Phase 6 (consolidation and
-forgetting) is next. See PROJECT_STATUS.md for
+Phases 0 to 6 (cleanup, run on macOS, trust baseline, memory store,
+smarter capture, recall, consolidation and forgetting) are complete;
+Phase 7 (the presence: menu-bar mode, a floating mark, a global hotkey and
+a Keep shortcut) is next. See PROJECT_STATUS.md for
 details and docs/decisions/ for the architecture decision records.
 The phase sections below describe the original build.
 
@@ -281,9 +282,48 @@ with 30 questions, on an M5 MacBook Air:
 | full answer, p50 / p95 | 0.82 s / 3.6 s | 0.97 s / 5.6 s |
 
 The set is small and was written alongside the pipeline, so treat 100% as
-"passes these 30", not as a guarantee. On real memories, where captured
+"passes these 30", not as a guarantee.
+
+Phase 6 added four questions answered from consolidated memory (two day
+summaries, two episodes). Consolidating the two finished fixture days into
+12 episodes took 21 seconds. Three of the four were answered correctly; the
+miss ("What was I coding in the engram project on Friday?") was cited but
+too vague to name the code. Over all 29 answerable questions accuracy is
+97%, with every unanswerable question still declined. Answers drawn from a
+day summary need no model call at all. On real memories, where captured
 pages are long, answers took 1.5 to 4.5 seconds (first words after about
 one second).
+
+## How Engram forgets
+
+A recorder keeps everything and remembers nothing. Engram is built the
+other way round.
+
+A day's raw captures are not the memory. They are the material
+a memory is made from. When a day is over, and your Mac is idle and plugged
+in, Engram consolidates it: it groups the day into episodes, stretches of
+related work split by breaks and changes of topic. Each episode gets a short
+title and a few sentences saying what you were doing, and each sentence
+points back to the captures it came from. Then it writes the day in a few
+sentences. That is what you see the next morning on the Recall page:
+yesterday's episodes with their times, how long you were focused, and the
+things you said you would do (ADR 0013).
+
+Once a day has been consolidated, its raw captures can be allowed to fade,
+the way the details of an ordinary afternoon do. You choose how quickly in
+Settings: Never (the starting point), Gentle (30 days), Balanced (14 days)
+or Brisk (7 days). Before anything fades for the first time, Engram shows
+you how many captures would go. Some things never fade:
+
+- **the episodes and day summaries**, which stay, so the shape of your past
+  remains searchable;
+- **anything you Keep**, from a memory or from a Recall source;
+- **anything Engram has recently used to answer you**, because recalling a
+  memory strengthens it, as it does in a brain.
+
+When a capture fades it is removed completely, from the database, from the
+search indexes and, after the next clean-up, from the disk. The Ledger
+notes how many went (ADR 0014).
 
 ## How capture works
 

@@ -14,7 +14,8 @@ def test_fixture_retrieval_and_activity_answers(fresh_store):
     for kind, question, groups, gold in fx.QUESTIONS:
         events = list(recall.recall(question, llm, embed_text, tz=fx.TZ, now=fx.NOW))
         meta, done = events[0], events[-1]
-        assert done["route"] == ("content" if kind == "unanswerable" else kind), question
+        expected_route = {"unanswerable": "content", "episode": "content", "day": "summary"}.get(kind, kind)
+        assert done["route"] == expected_route, question
         if kind == "activity":
             answer = done["answer"].lower()
             assert all(any(k.lower() in answer for k in g) for g in groups), (question, done["answer"])

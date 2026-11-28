@@ -114,11 +114,16 @@ def update_trace_content(memory_id: str, content: str, embedding: list[float]) -
 
 
 def delete_all_memories() -> int:
+    """Everything remembered: traces and what was built from them."""
     conn = connect()
     count = conn.execute("SELECT COUNT(*) FROM traces").fetchone()[0]
     with conn:
         conn.execute("DELETE FROM trace_vectors")
         conn.execute("DELETE FROM traces")
+        conn.execute("DELETE FROM episode_vectors")
+        conn.execute("DELETE FROM episodes")
+        conn.execute("DELETE FROM days")
+        conn.execute("DELETE FROM open_loops")
     return count
 
 
@@ -444,3 +449,187 @@ def clear_recall_history() -> int:
     with conn:
         cur = conn.execute("DELETE FROM recall_history")
     return cur.rowcount
+
+
+# --- consolidation ----------------------------------------------------------
+
+def day_exists(day: str) -> bool:
+    return connect().execute("SELECT 1 FROM days WHERE date = ?", (day,)).fetchone() is not None
+
+
+def earliest_activity_or_trace() -> str | None:
+    conn = connect()
+    a = conn.execute("SELECT MIN(started_at) FROM activity_sessions").fetchone()[0]
+    t = conn.execute("SELECT MIN(created_at) FROM traces").fetchone()[0]
+    return min(x for x in (a, t) if x) if (a or t) else None
+
+
+def has_activity_or_traces(since: str, until: str) -> bool:
+    conn = connect()
+    if conn.execute("SELECT 1 FROM traces WHERE created_at >= ? AND created_at < ? LIMIT 1", (since, until)).fetchone():
+        return True
+    return conn.execute("SELECT 1 FROM activity_sessions WHERE started_at >= ? AND started_at < ? LIMIT 1",
+                        (since, until)).fetchone() is not None
+
+
+def save_consolidated_day(day: str, episodes: list[dict], summary: str, stats: dict, embeddings: list[list[float]]) -> None:
+    """Replace the day's episodes and summary in one transaction."""
+    import json as _json
+
+    conn = connect()
+    with conn:
+        old = [r[0] for r in conn.execute("SELECT rowid FROM episodes WHERE day = ?", (day,))]
+        for rowid in old:
+            conn.execute("DELETE FROM episode_vectors WHERE rowid = ?", (rowid,))
+        conn.execute("DELETE FROM episodes WHERE day = ?", (day,))
+        conn.execute("DELETE FROM days WHERE date = ?", (day,))
+        conn.execute("INSERT INTO days (date, summary, created_at, stats) VALUES (?, ?, ?, ?)",
+                     (day, summary, now_iso(), _json.dumps(stats)))
+        for n, (e, vec) in enumerate(zip(episodes, embeddings), 1):
+            cur = conn.execute(
+                "INSERT INTO episodes (id, title, summary, started_at, ended_at, created_at, day, apps, focused_seconds) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (e["id"], e["title"], e["summary"], e["started_at"], e["ended_at"], now_iso(), day,
+                 _json.dumps(e["apps"]), e["focused_seconds"]))
+            conn.execute("INSERT INTO episode_vectors (rowid, embedding) VALUES (?, ?)", (cur.lastrowid, _vec(vec)))
+            conn.execute("INSERT INTO day_episodes (date, episode_id, n) VALUES (?, ?, ?)", (day, e["id"], n))
+            for tid in e["trace_ids"]:
+                conn.execute("INSERT OR IGNORE INTO episode_traces (episode_id, trace_id) VALUES (?, ?)", (e["id"], tid))
+            for s in e["sources"]:
+                conn.execute(
+                    "INSERT INTO episode_sources (episode_id, n, trace_id, app_name, window_title, url, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (e["id"], s["n"], s["trace_id"], s["app_name"], s["window_title"], s["url"], s["created_at"]))
+
+
+def get_day(day: str) -> dict | None:
+    import json as _json
+
+    conn = connect()
+    row = conn.execute("SELECT * FROM days WHERE date = ?", (day,)).fetchone()
+    if not row:
+        return None
+    eps = conn.execute(
+        "SELECT e.* FROM day_episodes d JOIN episodes e ON e.id = d.episode_id WHERE d.date = ? ORDER BY d.n", (day,)
+    ).fetchall()
+    return {"date": day, "summary": row["summary"], "stats": _json.loads(row["stats"] or "{}"),
+            "episodes": [episode_dict(e) for e in eps]}
+
+
+def episode_dict(row) -> dict:
+    import json as _json
+
+    sources = connect().execute(
+        "SELECT * FROM episode_sources WHERE episode_id = ? ORDER BY n", (row["id"],)).fetchall()
+    return {"id": row["id"], "title": row["title"], "summary": row["summary"], "started_at": row["started_at"],
+            "ended_at": row["ended_at"], "day": row["day"], "apps": _json.loads(row["apps"] or "[]"),
+            "focused_seconds": row["focused_seconds"], "sources": [dict(s) for s in sources]}
+
+
+def get_episodes_by_ids(ids: list[str]) -> dict[str, dict]:
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    rows = connect().execute(f"SELECT * FROM episodes WHERE id IN ({placeholders})", ids).fetchall()
+    return {r["id"]: episode_dict(r) for r in rows}
+
+
+def episode_search(query_words: set[str], embedding: list[float], since: str | None, until: str | None,
+                   limit: int = 2, max_distance: float = 0.55) -> list[str]:
+    """Episodes whose title or summary shares a meaningful word with the
+    question, or whose vector is close, within the period."""
+    conn = connect()
+    clauses, params = [], []
+    if since:
+        clauses.append("e.ended_at >= ?")
+        params.append(since)
+    if until:
+        clauses.append("e.started_at < ?")
+        params.append(until)
+    where = (" AND " + " AND ".join(clauses)) if clauses else ""
+    total = conn.execute("SELECT COUNT(*) FROM episode_vectors").fetchone()[0]
+    found: list[str] = []
+    if total:
+        rows = conn.execute(
+            "SELECT e.id, v.distance FROM (SELECT rowid, distance FROM episode_vectors WHERE embedding MATCH ? AND k = ?) v "
+            f"JOIN episodes e ON e.rowid = v.rowid WHERE 1=1{where} ORDER BY v.distance",
+            [_vec(embedding), min(total, 20), *params]).fetchall()
+        found = [r[0] for r in rows if r[1] <= max_distance]
+    if query_words:
+        for r in conn.execute(f"SELECT e.id, e.title, e.summary FROM episodes e WHERE 1=1{where}", params):
+            text = (r["title"] + " " + r["summary"]).lower()
+            if any(w in text for w in query_words) and r["id"] not in found:
+                found.append(r["id"])
+    return found[:limit]
+
+
+def mark_episode_sources_faded(trace_ids: list[str]) -> None:
+    if not trace_ids:
+        return
+    conn = connect()
+    with conn:
+        conn.executemany("UPDATE episode_sources SET faded = 1 WHERE trace_id = ?", [(t,) for t in trace_ids])
+
+
+# --- forgetting -------------------------------------------------------------
+
+_FADE_WHERE = (
+    "t.created_at < :cutoff AND t.pinned = 0 "
+    "AND (t.last_recalled_at IS NULL OR t.last_recalled_at < :cutoff) "
+    "AND EXISTS (SELECT 1 FROM episode_traces et WHERE et.trace_id = t.id)"
+)
+
+
+def fade_candidates(cutoff: str) -> list[str]:
+    """Traces old enough to fade: not pinned, not recalled lately, and already
+    part of a consolidated episode."""
+    return [r[0] for r in connect().execute(f"SELECT t.id FROM traces t WHERE {_FADE_WHERE}", {"cutoff": cutoff})]
+
+
+def fade_counts(cutoff: str) -> dict:
+    conn = connect()
+    would = conn.execute(f"SELECT COUNT(*) FROM traces t WHERE {_FADE_WHERE}", {"cutoff": cutoff}).fetchone()[0]
+    pinned = conn.execute("SELECT COUNT(*) FROM traces WHERE created_at < ? AND pinned = 1", (cutoff,)).fetchone()[0]
+    recalled = conn.execute(
+        "SELECT COUNT(*) FROM traces WHERE created_at < ? AND pinned = 0 AND last_recalled_at >= ?", (cutoff, cutoff)
+    ).fetchone()[0]
+    return {"would_fade": would, "kept_by_pin": pinned, "kept_by_recall": recalled}
+
+
+def set_pinned(memory_id: str, pinned: bool) -> bool:
+    conn = connect()
+    with conn:
+        cur = conn.execute("UPDATE traces SET pinned = ? WHERE id = ?", (1 if pinned else 0, memory_id))
+    return cur.rowcount > 0
+
+
+# --- open loops -------------------------------------------------------------
+
+def open_loop_exists(text_hash: str) -> bool:
+    return connect().execute("SELECT 1 FROM open_loops WHERE text_hash = ?", (text_hash,)).fetchone() is not None
+
+
+def add_open_loop(trace_id: str, text: str, text_hash: str, app_name: str, created_at: str) -> None:
+    conn = connect()
+    with conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO open_loops (id, trace_id, text, text_hash, app_name, created_at, status, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
+            (str(uuid.uuid4()), trace_id, text, text_hash, app_name, created_at, now_iso()))
+
+
+def get_open_loops(status: str = "open", limit: int = 50) -> list[dict]:
+    rows = connect().execute(
+        "SELECT * FROM open_loops WHERE status = ? ORDER BY created_at DESC LIMIT ?", (status, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_open_loop_status(loop_id: str, status: str) -> bool:
+    conn = connect()
+    with conn:
+        cur = conn.execute("UPDATE open_loops SET status = ?, updated_at = ? WHERE id = ?", (status, now_iso(), loop_id))
+    return cur.rowcount > 0
+
+
+def consolidated_days() -> list[str]:
+    return [r[0] for r in connect().execute("SELECT date FROM days ORDER BY date")]

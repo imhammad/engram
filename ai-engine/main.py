@@ -457,6 +457,8 @@ def export_all_data():
         "capture_log": get_capture_log(limit=100000),
         "exclusion_rules": user_rules(),
         "recall_history": db.get_recall_history(limit=100000),
+        "days": [db.get_day(d) for d in db.consolidated_days()],
+        "open_loops": db.get_open_loops("open", 1000) + db.get_open_loops("done", 1000) + db.get_open_loops("dismissed", 1000),
     }
 
 
@@ -478,6 +480,127 @@ def storage_info():
         "schema_version": store.schema_version(store.connect()),
         "legacy_import": json.loads(summary) if summary else None,
     }
+
+
+# --- consolidation, recap, forgetting, open loops (Phase 6) -------------------
+
+import threading as _threading
+
+import consolidation
+import forgetting
+
+_consolidation_lock = _threading.Lock()
+_consolidation_state = {"running": False}
+
+
+def _local_tz():
+    return datetime.now().astimezone().tzinfo
+
+
+def run_consolidation(day: str | None = None, force: bool = False) -> dict:
+    """Consolidate one day (or every pending past day), then apply forgetting."""
+    if not _consolidation_lock.acquire(blocking=False):
+        return {"running": True, "consolidated": [], "faded": 0}
+    _consolidation_state["running"] = True
+    try:
+        tz = _local_tz()
+        if day:
+            result = consolidation.consolidate_day(datetime.fromisoformat(day).date(), llm, embed_text, tz, force=force)
+            done = [result["day"]] if result else []
+        else:
+            done = consolidation.consolidate_pending(llm, embed_text, tz)
+        faded = forgetting.run()
+        return {"running": False, "consolidated": done, "faded": faded.get("faded", 0)}
+    finally:
+        _consolidation_state["running"] = False
+        _consolidation_lock.release()
+
+
+class ConsolidateRequest(BaseModel):
+    day: str | None = None
+    force: bool = False
+
+
+@app.post("/consolidate")
+def consolidate_endpoint(body: ConsolidateRequest = ConsolidateRequest()):
+    """On demand from Settings, or from the shell when the Mac is idle and on power."""
+    return run_consolidation(body.day, body.force)
+
+
+@app.get("/consolidation")
+def consolidation_status():
+    last = store.get_setting("last_consolidation")
+    return {"running": _consolidation_state["running"],
+            "pending_days": [d.isoformat() for d in consolidation.pending_days(_local_tz())],
+            "last": json.loads(last) if last else None}
+
+
+@app.get("/days/{day}")
+def get_day_endpoint(day: str):
+    found = db.get_day(day)
+    return found or JSONResponse({"detail": "not consolidated"}, status_code=404)
+
+
+@app.get("/recap")
+def recap(day: str | None = None):
+    """Yesterday (or a given day) as episodes, focused time, top apps and open loops."""
+    from datetime import timedelta as _td
+    tz = _local_tz()
+    target = day or (datetime.now(tz).date() - _td(days=1)).isoformat()
+    found = db.get_day(target)
+    return {"day": target, "consolidated": found is not None, **(found or {}),
+            "open_loops": db.get_open_loops("open", limit=8)}
+
+
+class ForgettingSetting(BaseModel):
+    days: int
+    confirm: bool = False
+
+
+@app.get("/forgetting")
+def forgetting_status():
+    days = forgetting.get_days()
+    return {"days": days, "label": forgetting.CHOICES.get(days, "Custom"),
+            "previews": {str(d): forgetting.preview(d) for d in (30, 14, 7)}}
+
+
+@app.put("/forgetting")
+def set_forgetting(body: ForgettingSetting):
+    if body.days not in forgetting.CHOICES:
+        return JSONResponse({"detail": f"days must be one of {sorted(forgetting.CHOICES)}"}, status_code=422)
+    # Turning forgetting on (or making it stricter) needs the preview to have been seen.
+    current = forgetting.get_days()
+    stricter = body.days > 0 and (current == 0 or body.days < current)
+    if stricter and not body.confirm:
+        return JSONResponse({"detail": "confirm the preview first", "preview": forgetting.preview(body.days)}, status_code=409)
+    forgetting.set_days(body.days)
+    return forgetting_status()
+
+
+class KeepRequest(BaseModel):
+    pinned: bool = True
+
+
+@app.post("/memories/{memory_id}/keep")
+def keep_memory(memory_id: str, body: KeepRequest = KeepRequest()):
+    """Keep (pin) a memory so it never fades."""
+    return {"pinned": body.pinned, "updated": db.set_pinned(memory_id, body.pinned)}
+
+
+class LoopStatus(BaseModel):
+    status: str
+
+
+@app.get("/open-loops")
+def open_loops_endpoint(status: str = "open"):
+    return db.get_open_loops(status)
+
+
+@app.post("/open-loops/{loop_id}")
+def set_loop_status(loop_id: str, body: LoopStatus):
+    if body.status not in ("open", "done", "dismissed"):
+        return JSONResponse({"detail": "status must be open, done or dismissed"}, status_code=422)
+    return {"updated": db.set_open_loop_status(loop_id, body.status)}
 
 
 class RecallQuestion(BaseModel):
@@ -558,10 +681,24 @@ def watch_parent() -> None:
     threading.Thread(target=loop, name="parent-watchdog", daemon=True).start()
 
 
+def consolidate_in_background() -> None:
+    """At startup, consolidate any finished days that are still raw."""
+    def work():
+        try:
+            result = run_consolidation()
+            if result["consolidated"]:
+                print(f"Consolidated {len(result['consolidated'])} day(s): {', '.join(result['consolidated'])}")
+        except Exception as exc:  # never take the engine down for this
+            print(f"Consolidation failed: {exc}")
+
+    _threading.Thread(target=work, name="consolidation", daemon=True).start()
+
+
 if __name__ == "__main__":
     import uvicorn
 
     watch_parent()
+    consolidate_in_background()
 
     port = int(os.environ.get("ENGRAM_PORT", "8000"))
     # Loopback only: the engine is never reachable from the network.

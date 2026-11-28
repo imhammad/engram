@@ -111,6 +111,12 @@ QUESTIONS = [
     ("summary", "What did I work on yesterday?", [["Paolo", "accessibility", "SQLCipher", "club", "workshop", "Stage Manager", "secure"]], ["t06", "t07", "t08", "t09", "t10", "t11"]),
     ("summary", "What did I do on Thursday?", [["seizure", "EEG", "fusion", "hotel", "Dr. Lee", "hybrid"]], ["t01", "t02", "t03", "t04", "t05"]),
     ("summary", "Give me a recap of today", [["Qwen", "dataset", "flight", "timeparse", "parse", "Aisha"]], ["t12", "t13", "t14", "t15", "t16"]),
+    # Consolidated memory (Phase 6): answered from day summaries and episodes,
+    # which the evaluation builds first by consolidating Thursday and Friday.
+    ("day", "Summarise Friday for me", [["Paolo", "accessibility", "SQLCipher", "club", "workshop", "Stage Manager", "secure", "grocery"]], ["t06", "t07", "t08", "t09", "t10", "t11"]),
+    ("day", "What was I doing on Thursday?", [["seizure", "EEG", "fusion", "hotel", "Dr. Lee", "hybrid", "Lee"]], ["t01", "t02", "t03", "t04", "t05"]),
+    ("episode", "What happened in my meeting with Dr. Lee?", [["78", "EEGNet", "Siena", "sensitivity", "room 204"]], ["t03"]),
+    ("episode", "What was I coding in the engram project on Friday?", [["secure", "password", "accessibility", "AXSecureTextField", "ax.rs"]], ["t07"]),
     # Unanswerable: nothing in memory supports an answer.
     ("unanswerable", "What is my bank account number?", [], []),
     ("unanswerable", "What did the doctor say about my blood test?", [], []),

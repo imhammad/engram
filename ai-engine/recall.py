@@ -65,10 +65,11 @@ class Source:
     url: str
     created_at: str
     snippet: str
+    kind: str = "memory"   # memory | activity | episode
 
     def card(self) -> dict:
         return {"n": self.n, "id": self.id, "app_name": self.app_name, "window_title": self.window_title,
-                "url": self.url, "created_at": self.created_at, "snippet": self.snippet[:280]}
+                "url": self.url, "created_at": self.created_at, "snippet": self.snippet[:280], "kind": self.kind}
 
 
 @dataclass
@@ -81,8 +82,31 @@ class Plan:
 
 # --- understanding the question ---------------------------------------------
 
+# Words that carry no subject in a question to Engram ("can I ask you a question?").
+_SMALL_TALK_WORDS = {
+    "hi", "hello", "hey", "thanks", "thank", "ok", "okay", "cool", "great", "good", "morning", "evening",
+    "can", "could", "may", "ask", "question", "questions", "help", "engram", "you", "your", "yourself",
+    "work", "works", "something", "anything", "please", "yes", "no", "sure", "how", "are", "doing", "who",
+    "what", "is", "am", "do", "does", "the", "a", "an", "i", "me", "my", "to", "of", "it", "this", "that",
+    "use", "able", "there", "be", "will", "would", "tell", "about", "know", "remember", "for", "with",
+}
+SMALL_TALK_REPLY = (
+    "Of course. Ask me about anything you saw, read or did on this Mac, for example \"What was that "
+    "article about?\", \"What did I work on yesterday?\" or \"How long was I in Chrome today?\". I answer only "
+    "from your own memories, and I'll tell you when something isn't in them."
+)
+
+
+def is_small_talk(question: str) -> bool:
+    """Greetings and questions about Engram itself, with no subject to look up."""
+    words = re.findall(r"[a-z']+", question.lower())
+    return bool(words) and all(w.strip("'") in _SMALL_TALK_WORDS for w in words)
+
+
 def classify(question: str) -> str:
     q = question.lower()
+    if is_small_talk(question):
+        return "chat"
     if any(re.search(p, q) for p in ACTIVITY_PATTERNS):
         return "activity"
     if any(re.search(p, q) for p in SUMMARY_PATTERNS):
@@ -267,7 +291,7 @@ def source_block(sources: list[Source], tz) -> str:
 
 SYSTEM_PROMPT = (
     "You are Engram, a private memory assistant. Answer the user's question using ONLY the numbered "
-    "sources from their own memories. Rules: every sentence must end with the number of the source it "
+    "sources from their own memories, speaking to them as \"you\". Rules: every sentence must end with the number of the source it "
     "comes from, like [1] or [2][3]. Do not use outside knowledge. Do not invent details. Keep it to "
     "one to four short sentences. If the sources do not contain the answer, reply with exactly: "
     + NOT_FOUND
@@ -368,6 +392,11 @@ def recall(question: str, llm, embed: Callable[[str], list[float]], tz=None, now
     known = db.known_app_names()
     app = find_app(question, known)
 
+    if route == "chat":
+        yield {"type": "meta", "route": route, "period": None, "sources": []}
+        yield {"type": "done", "route": route, "answer": SMALL_TALK_REPLY, "sources": [], "dropped_sentences": 0}
+        return
+
     if route == "activity":
         result = answer_activity(question, period or Period(now.replace(hour=0, minute=0, second=0, microsecond=0), now, "today"), app, tz)
         yield {"type": "meta", "route": route, "period": (period.label if period else "today"), "sources": []}
@@ -377,6 +406,19 @@ def recall(question: str, llm, embed: Callable[[str], list[float]], tz=None, now
 
     if route == "summary":
         period = period or Period(now.replace(hour=0, minute=0, second=0, microsecond=0), now, "today")
+        day = _whole_day(period)
+        stored = db.get_day(day) if day else None
+        if stored and stored["summary"]:
+            # Already consolidated: answer from the day summary and its episodes.
+            activity = answer_activity("which apps", period, None, tz)
+            cards = [episode_card(i, e, tz) for i, e in enumerate(stored["episodes"], 1)]
+            lead = activity["answer"] if activity["breakdown"] else ""
+            cited = {int(n) for n in _CITE.findall(stored["summary"])}
+            yield {"type": "meta", "route": route, "period": period.label, "sources": cards, "breakdown": activity["breakdown"]}
+            yield {"type": "done", "route": route, "answer": " ".join(x for x in (lead, stored["summary"]) if x),
+                   "breakdown": activity["breakdown"], "sources": [c for c in cards if c["n"] in cited] or cards,
+                   "dropped_sentences": 0}
+            return
         since, until = period.as_utc_iso()
         activity = answer_activity("which apps", period, None, tz)
         memories = _pick_summary_traces(db.traces_between(since, until, limit=200))
@@ -401,9 +443,27 @@ def recall(question: str, llm, embed: Callable[[str], list[float]], tz=None, now
 
     # Content questions.
     since, until = period.as_utc_iso() if period else (None, None)
-    ids = relevant_search(question, embed(question), limit=MAX_SOURCES, since=since, until=until, app=app)
+    q_embedding = embed(question)
+    ids = relevant_search(question, q_embedding, limit=MAX_SOURCES, since=since, until=until, app=app)
     by_id = db.get_memories_by_ids(ids)
-    sources = build_sources([by_id[i] for i in ids if i in by_id], question)
+    # Consolidated episodes first: they summarise whole stretches of work and
+    # survive after their raw traces fade (ADR 0013).
+    from search import STOPWORDS
+    q_words = {w for w in re.findall(r"[a-z0-9]+", question.lower()) if len(w) >= 4 and w not in STOPWORDS}
+    episodes = db.get_episodes_by_ids(db.episode_search(q_words, q_embedding, since, until))
+    sources = [Source(i, e["id"], ", ".join(a["app_name"] for a in e["apps"][:2]), e["title"], "", e["started_at"],
+                      f"Episode: {e['title']}. {_CITE.sub('', e['summary']).strip()}", kind="episode")
+               for i, e in enumerate(episodes.values(), 1)]
+    for s in build_sources([by_id[i] for i in ids if i in by_id], question):
+        s.n = len(sources) + 1
+        sources.append(s)
+    # Songs, videos and sites often exist only as window titles in activity:
+    # add matching sessions as sources too.
+    for item in activity_matches(question, period, tz):
+        if len(sources) >= MAX_SOURCES + 2:
+            break
+        sources.append(Source(len(sources) + 1, item["id"], item["app_name"], item["window_title"], "",
+                              item["started_at"], item["snippet"], kind="activity"))
     yield {"type": "meta", "route": route, "period": period.label if period else None,
            "sources": [s.card() for s in sources]}
     if not sources:
@@ -412,9 +472,67 @@ def recall(question: str, llm, embed: Callable[[str], list[float]], tz=None, now
     text = yield from _generate(llm, SYSTEM_PROMPT, sources, question, tz)
     body, dropped, cited = check_citations(text, [s.snippet for s in sources])
     final = body or NOT_FOUND
-    db.touch_recalled([s.id for s in sources if s.n in cited])
+    db.touch_recalled([s.id for s in sources if s.n in cited and s.kind == "memory"])
     yield {"type": "done", "route": route, "answer": final,
            "sources": [s.card() for s in sources if s.n in cited], "dropped_sentences": dropped}
+
+
+# Question words that say nothing about which window was meant.
+_ACTIVITY_NOISE = {"listen", "listened", "listening", "watch", "watched", "watching", "visit", "visited",
+                   "open", "opened", "song", "songs", "video", "videos", "music", "site", "website", "page",
+                   "last", "night", "today", "yesterday", "morning", "evening", "any", "did", "was", "were"}
+
+
+def activity_matches(question: str, period: Period | None, tz, limit: int = 3) -> list[dict]:
+    """Activity sessions whose window title or app name shares words with the
+    question, grouped per window, best first. "Did I listen to Higher Love on
+    YouTube Music last night?" finds the session titled
+    "YouTube Music - Higher Love"."""
+    from search import STOPWORDS
+    words = {w for w in re.findall(r"[a-z0-9]+", question.lower())
+             if len(w) >= 3 and w not in STOPWORDS and w not in _ACTIVITY_NOISE}
+    # App names count too ("YouTube Music"), so keep app words from the question.
+    app_words = {w for w in re.findall(r"[a-z0-9]+", question.lower()) if len(w) >= 3 and w not in STOPWORDS}
+    if not app_words:
+        return []
+    since, until = period.as_utc_iso() if period else ("0000", "9999")
+    grouped: dict[tuple, dict] = {}
+    for s in db.sessions_between(since, until):
+        title = s["window_title"] or ""
+        if title == "[excluded]":
+            continue
+        hay = set(re.findall(r"[a-z0-9]+", (title + " " + s["app_name"]).lower()))
+        score = 2 * len(words & hay) + len(app_words & set(re.findall(r"[a-z0-9]+", s["app_name"].lower())))
+        if score == 0:
+            continue
+        key = (s["app_name"], title)
+        g = grouped.setdefault(key, {"score": score, "first": s["started_at"], "seconds": 0.0, "id": "session:" + s["id"]})
+        g["seconds"] += s.get("duration_seconds") or 0.0
+        g["first"] = min(g["first"], s["started_at"])
+    ranked = sorted(grouped.items(), key=lambda kv: (-kv[1]["score"], kv[1]["first"]))[:limit]
+    out = []
+    for (app, title), g in ranked:
+        dur = f" for {format_duration(g['seconds'])}" if g["seconds"] >= 60 else ""
+        out.append({"id": g["id"], "app_name": app, "window_title": title, "started_at": g["first"],
+                    "snippet": f"Activity: the window \"{title or app}\" in {app} was open at "
+                               f"{_local(g['first'], tz).strftime('%a %d %b %H:%M')}{dur}."})
+    return out
+
+
+def _whole_day(period: Period) -> str | None:
+    """The local date if the period is exactly one whole day, else None."""
+    s, e = period.start, period.end
+    if s.hour == s.minute == 0 and (e - s).days == 1 and e.hour == e.minute == 0:
+        return s.date().isoformat()
+    return None
+
+
+def episode_card(n: int, e: dict, tz) -> dict:
+    start = _local(e["started_at"], tz).strftime("%H:%M")
+    end = _local(e["ended_at"], tz).strftime("%H:%M")
+    return {"n": n, "id": e["id"], "kind": "episode", "app_name": ", ".join(a["app_name"] for a in e["apps"][:2]),
+            "window_title": e["title"], "url": "", "created_at": e["started_at"],
+            "snippet": f"{start} to {end}. {_CITE.sub('', e['summary']).strip()}"}
 
 
 def _pick_summary_traces(traces: list[dict]) -> list[dict]:

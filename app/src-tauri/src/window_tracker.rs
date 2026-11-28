@@ -167,6 +167,37 @@ async fn stop_activity(app: &AppHandle, reason: &str, seconds_ago: f64) {
     }
 }
 
+/// True when the Mac is running on mains power (pmset reports "AC Power").
+fn on_ac_power() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("pmset")
+            .args(["-g", "batt"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("AC Power"))
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// When the user steps away and the Mac is plugged in, let the engine
+/// consolidate finished days (and apply forgetting). At most once an hour.
+fn consolidate_while_idle(app: &AppHandle, last: &mut Option<Instant>) {
+    if last.is_some_and(|t| t.elapsed() < Duration::from_secs(3600)) || !on_ac_power() {
+        return;
+    }
+    *last = Some(Instant::now());
+    if let Some(req) = engine::request(app, reqwest::Method::POST, "/consolidate") {
+        println!("[window-tracker] idle on power: asking the engine to consolidate");
+        tauri::async_runtime::spawn(async move {
+            let _ = req.timeout(Duration::from_secs(1800)).json(&json!({})).send().await;
+        });
+    }
+}
+
 async fn log_excluded(app: &AppHandle, app_name: &str, reason: &str) {
     if let Some(req) = engine::request(app, reqwest::Method::POST, "/ledger") {
         let _ = req
@@ -200,6 +231,7 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
         // Set while activity is stopped (idle, sleep, lock, pause); the next
         // window seen after that starts a fresh session.
         let mut away = false;
+        let mut last_consolidation: Option<Instant> = None;
         // Wall-clock time of the previous poll. Monotonic time stops while
         // the Mac sleeps, so only the wall clock shows the gap.
         let mut last_tick = std::time::SystemTime::now();
@@ -229,6 +261,9 @@ pub fn start_tracking(app: AppHandle, paused: Arc<AtomicBool>) {
                 if !away || reason == "sleep" {
                     println!("[window-tracker] activity stopped ({reason})");
                     stop_activity(&app, reason, seconds_ago).await;
+                    if reason == "idle" {
+                        consolidate_while_idle(&app, &mut last_consolidation);
+                    }
                 }
                 away = true;
                 if reason != "sleep" {
