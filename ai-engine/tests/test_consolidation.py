@@ -195,6 +195,7 @@ def test_unconsolidated_days_never_fade(fresh_store):
     ("I need to rerun EEGNet on the Siena recordings.", True),
     ("Reciprocal rank fusion combines the rankings of several systems.", False),
     ("The weather is lovely today and the coffee is good.", False),
+    ("Final-year CS student who'd rather ship something than build another to-do app.", False),
 ])
 def test_open_loop_candidates(text, expected):
     import open_loops

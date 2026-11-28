@@ -17,7 +17,7 @@ READING_APPS = {"google chrome", "safari", "arc", "firefox", "microsoft edge", "
                 "vivaldi", "preview", "books", "kindle"}
 
 PATTERNS = [
-    r"\btodo\b[:\s]", r"\bto-do\b", r"\bremind me to\b", r"\bdon'?t forget to\b", r"\bremember to\b",
+    r"\btodo\b[:\s]", r"\bto-do list\b", r"\bremind me to\b", r"\bdon'?t forget to\b", r"\bremember to\b",
     r"\bi (?:need|have|must|should|want) to\b", r"\bi'?ll\b", r"\bi will\b", r"\baction items?\b",
     r"\bplease reply by\b", r"\bdeadline\b", r"\bdue (?:on|by|date)\b", r"\bby (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|tonight)\b",
     r"\bfollow up\b", r"\bnext steps?\b",
@@ -52,7 +52,10 @@ def detect_and_store(traces: list[dict], llm) -> int:
     """Find open loops in these traces and store new ones. Returns how many were added."""
     added = 0
     for t in traces:
-        if (t.get("app_name") or "").lower() in READING_APPS and t.get("source") != "manual":
+        app = (t.get("app_name") or "").lower()
+        # Typed notes always count. Captures count only from apps known not to
+        # be for reading (unknown-app captures from before Phase 2 are skipped).
+        if t.get("source") != "manual" and (not app or app in READING_APPS):
             continue
         for sentence in candidates(t["content"]):
             digest = hashlib.sha256(sentence.lower().encode()).hexdigest()

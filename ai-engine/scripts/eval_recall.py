@@ -80,6 +80,29 @@ def main() -> None:
         llm = Llama(model_path=str(paths.llm_path()), n_ctx=4096, n_gpu_layers=-1, verbose=False)
         print(f"loaded {model_name} in {time.perf_counter() - t:.1f}s")
 
+    # Consolidate the finished days first, as Engram would overnight.
+    import consolidation
+    import db
+    t0 = time.perf_counter()
+    consolidated = consolidation.consolidate_pending(llm, embed_text, fx.TZ, today=fx.NOW.date())
+    consolidation_s = time.perf_counter() - t0
+    episodes_built = sum(len(db.get_day(d)["episodes"]) for d in consolidated)
+    print(f"consolidated {consolidated} into {episodes_built} episodes in {consolidation_s:.1f}s")
+    for d in consolidated:
+        day = db.get_day(d)
+        print(f"  {d}: {day['summary']}")
+        for e in day["episodes"]:
+            print(f"    - {e['title']}: {e['summary'][:140]}")
+
+    def expand(ids):
+        """Episode ids stand for the traces they were built from."""
+        eps = db.get_episodes_by_ids([i for i in ids if i not in trace_ids])
+        out = set(i for i in ids if i in trace_ids)
+        for e in eps.values():
+            out |= {src["trace_id"] for src in e["sources"]}
+        return out
+
+    trace_ids = {tid for tid, *_ in fx.TRACES}
     rows = []
     for kind, question, groups, gold in fx.QUESTIONS:
         start = time.perf_counter()
@@ -97,8 +120,8 @@ def main() -> None:
                 done = event
         total = time.perf_counter() - start
         answer = done.get("answer", "")
-        found = [s["id"] for s in meta.get("sources", [])]
-        cited = [s["id"] for s in done.get("sources", [])]
+        found = list(expand([s["id"] for s in meta.get("sources", [])]))
+        cited = list(expand([s["id"] for s in done.get("sources", [])]))
         abstained = answer.strip() == recall.NOT_FOUND
         rows.append({
             "kind": kind, "question": question, "route": done.get("route"), "answer": answer,
@@ -114,8 +137,11 @@ def main() -> None:
 
     by = lambda k: [r for r in rows if r["kind"] == k]  # noqa: E731
     content, summary, activity, unans = by("content"), by("summary"), by("activity"), by("unanswerable")
+    consolidated_q = by("day") + by("episode")
     model_rows = [r for r in rows if r["route"] in ("content", "summary") and r["tokens"]]
-    answered = [r for r in content + summary if not r["abstained"]]
+    for r in consolidated_q:
+        r["cited_gold"] = bool(set(r["gold"]) & set(r["cited"])) if r["gold"] else None
+    answered = [r for r in content + summary + consolidated_q if not r["abstained"]]
     report = {
         "model": model_name,
         "questions": len(rows),
@@ -125,7 +151,8 @@ def main() -> None:
             "activity": sum(r["correct"] for r in activity) / len(activity),
             "content": sum(r["correct"] for r in content) / len(content),
             "summary": sum(r["correct"] for r in summary) / len(summary),
-            "all_answerable": sum(r["correct"] for r in activity + content + summary) / len(activity + content + summary),
+            "day_and_episode": sum(r["correct"] for r in consolidated_q) / len(consolidated_q),
+            "all_answerable": sum(r["correct"] for r in activity + content + summary + consolidated_q) / len(activity + content + summary + consolidated_q),
         },
         "abstention_on_unanswerable": sum(r["abstained"] for r in unans) / len(unans),
         "false_abstention_on_content": sum(r["abstained"] for r in content) / len(content),
@@ -135,6 +162,7 @@ def main() -> None:
         "activity_answer_s": {"p50": pct([r["total"] for r in activity], 50)},
         "tokens_per_s": (sum(r["tokens"] for r in model_rows) / sum(r["total"] - (r["first_token"] or 0) for r in model_rows)) if model_rows else 0,
         "peak_rss_gb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e9,
+        "consolidation": {"days": len(consolidated), "episodes": episodes_built, "seconds": round(consolidation_s, 1)},
     }
     print(json.dumps(report, indent=2))
     if args.json:

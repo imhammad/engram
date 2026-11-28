@@ -2,7 +2,7 @@
 
 This document describes what Engram stores, where it lives, who can reach it,
 what the macOS permissions it asks for allow, and what it does not try to
-defend against. It reflects the state after Phase 5 (recall).
+defend against. It reflects the state after Phase 6 (consolidation and forgetting).
 
 ## What Engram stores
 
@@ -20,6 +20,17 @@ Everything is kept under `~/Library/Application Support/dev.engram.app`:
     tables for later phases.
   - `recall_history`: questions asked in Recall and the answers given,
     cleared from the Recall page or with "Delete everything".
+  - `episodes`, `days`, `episode_sources` and `open_loops`: the summaries
+    consolidation writes from the captures, the sources each episode drew
+    on, and commitments found in the user's own notes and messages. They
+    are deleted with "Delete everything".
+
+**Forgetting reduces what is kept.** With forgetting turned on (it starts
+at Never), raw captures older than the chosen window are deleted after
+their day has been summarised, unless the user kept them or a recent
+answer used them. They are removed from the database, the search indexes
+and, after a vacuum, the disk, so an old copy of the database holds less
+over time (ADR 0014).
 - `models/`: the three model files, installed once by `fetch_models.py`.
 - `backup-before-phase3-*/`: the pre-Phase-3 plain database and Chroma
   folder, moved there during the one-time import. **These are not
