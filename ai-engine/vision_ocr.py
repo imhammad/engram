@@ -6,10 +6,15 @@ gives no usable text (ADR 0009). It replaced Tesseract after a comparison on
 this Mac: see scripts/compare_ocr.py and the Phase 4 pull request.
 """
 
-import io
-from dataclasses import dataclass
+from __future__ import annotations
 
-from PIL import Image
+import io
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # Pillow is only needed where Vision runs, not by order_blocks
+    from PIL import Image
 
 # Two columns are separate when a vertical strip at least this wide (as a
 # share of the image width) has no text crossing it.
